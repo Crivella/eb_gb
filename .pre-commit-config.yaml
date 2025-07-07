@@ -2,7 +2,6 @@ repos:
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v4.1.0
       hooks:
-          - id: double-quote-string-fixer
           - id: end-of-file-fixer
             exclude: &exclude >-
                 (?x)^(
@@ -11,6 +10,8 @@ repos:
                     .*\.json|
                     .*\.txt
                 )$
+          - id: double-quote-string-fixer
+            exclude: *exclude
           - id: mixed-line-ending
           - id: trailing-whitespace
             exclude: *exclude

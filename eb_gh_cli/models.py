@@ -146,12 +146,14 @@ class GithubMixin(models.Model):
         for key in id_key:
             gh_id = getattr(gh_id, key)
 
+
+        for key, val in foreign.items():
+            defaults[key] = val
+
         res, created = func(
             gh_id=gh_id,
             defaults=defaults
         )
-        for key, val in foreign.items():
-            setattr(res, key, val)
         if created:
             logger.debug(f"Created new {cls.__name__} instance: {res}")
         elif update:
@@ -438,7 +440,7 @@ class GithubIssue(GithubMixin):
                 raise ValueError(f"Invalid issue ID: {gh_id}")
             gh_id = int(id)
         issue = repository.gh_obj.get_issue(gh_id)
-        return cls.create_from_obj(issue, foreign={'repository':repository}, update=update)
+        return cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
 
     @classmethod
     def create_from_obj(cls, obj: github.Issue.Issue, **kwargs) -> 'GithubIssue':
@@ -461,7 +463,7 @@ class GithubIssue(GithubMixin):
         Returns a list of GithubIssue instances.
         """
         issues = repository.gh_obj.get_issues(state='all')
-        return [cls.create_from_obj(issue, foreign={'repository':repository}) for issue in issues]
+        return [cls.create_from_obj(issue, foreign={'repository': repository}) for issue in issues]
 
     def get_comments(self) -> list['GithubIssueComment']:
         """
@@ -469,7 +471,7 @@ class GithubIssue(GithubMixin):
         Returns a list of GithubPRComment instances.
         """
         return [
-            GithubIssueComment.create_from_obj(comment, foreign={'issue':self})
+            GithubIssueComment.create_from_obj(comment, foreign={'issue': self})
             for comment in self.gh_obj.get_comments()
         ]
 
@@ -568,13 +570,12 @@ class GithubPullRequest(GithubMixin):
         ColObjMap('is_closed', 'state', converter=lambda x: x == 'closed'),
 
         ColObjMap('created_by', 'user.login', converter=user_converter),
-        ColObjMap('merged_by', 'merged_by.login', converter=user_converter),
+        ColObjMap('merged_by', 'merged_by.login', None, converter=user_converter),
 
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
         ColObjMap('merged_at', 'merged_at', None),
         ColObjMap('closed_at', 'closed_at', None)
-
     ]
 
     def __str__(self):
@@ -593,7 +594,7 @@ class GithubPullRequest(GithubMixin):
                 raise ValueError(f"Invalid pull request ID: {pr_id}")
             pr_id = int(pr_id)
         pr = repository.gh_obj.get_pull(pr_id)
-        return cls.create_from_obj(pr, foreign={'repository':repository}, update=update)
+        return cls.create_from_obj(pr, foreign={'repository': repository}, update=update)
 
     @classmethod
     def create_from_obj(cls,obj: github.PullRequest.PullRequest, **kwargs) -> 'GithubPullRequest':
@@ -618,7 +619,7 @@ class GithubPullRequest(GithubMixin):
         Returns a list of GithubPullRequest instances.
         """
         pull_requests = repository.gh_obj.get_pulls(state='all')
-        return [cls.create_from_obj(pr, foreign={'repository':repository}) for pr in pull_requests]
+        return [cls.create_from_obj(pr, foreign={'repository': repository}) for pr in pull_requests]
 
     @property
     def gh_obj(self) -> github.PullRequest.PullRequest:
@@ -667,7 +668,7 @@ class GithubPRComment(GithubMixin):
         Returns a list of GithubPRComment instances.
         """
         comments = pull_request.gh_obj.get_issue_comments()
-        return [cls.create_from_obj(comment, foreign={'pull_request':pull_request}) for comment in comments]
+        return [cls.create_from_obj(comment, foreign={'pull_request': pull_request}) for comment in comments]
 
     @property
     def gh_obj(self) -> github.PullRequestComment.PullRequestComment:
@@ -714,4 +715,4 @@ class GithubPRReview(GithubMixin):
         Returns a list of GithubPRReview instances.
         """
         reviews = pull_request.gh_obj.get_reviews()
-        return [cls.create_from_obj(review, foreign={'pull_request':pull_request}) for review in reviews]
+        return [cls.create_from_obj(review, foreign={'pull_request': pull_request}) for review in reviews]

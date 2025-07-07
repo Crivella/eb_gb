@@ -161,6 +161,7 @@ def gh_repo(gh_repo, gh_user):
     click.echo(f'GitHub repository {gh_repo.name} fetched successfully.')
 
 @fetch.command()
+@GH_USER_OPTION
 @click.argument('gh-repo', type=GithubRepositoryType())
 def prs_from_repo(gh_repo):
     """Create a pull request from a GitHub repository."""
@@ -174,6 +175,7 @@ def prs_from_repo(gh_repo):
         click.echo(f'Error creating pull request: {e}')
 
 @fetch.command()
+@GH_USER_OPTION
 @click.argument('gh-repo', type=GithubRepositoryType())
 def issues_from_repo(gh_repo):
     """Create issues from a GitHub repository."""
