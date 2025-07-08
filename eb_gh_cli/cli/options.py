@@ -1,10 +1,10 @@
-# pylint: skip-file
-import click
-
+""""Custom Click options for the GitHub CLI."""
+from . import click
 from . import click_types as ct
 
 
 def register_hidden_param(ctx, param, value):
+    """Register a hidden parameter in the context."""
     if not hasattr(ctx, 'hidden_params'):
         ctx.hidden_params = {}
     ctx.hidden_params[param.name] = value
@@ -26,7 +26,7 @@ UPDATE_OPTION = click.option(
 FILTERH_USER_OPTION = click.option(
     '-u', '--gh-user',
     type=ct.GithubUserType(),
-    help='GitHub user',
+    help='GitHub user for filtering',
     expose_value=False,
     callback=register_hidden_param
 )
@@ -34,7 +34,7 @@ FILTERH_USER_OPTION = click.option(
 FILTER_REPO_OPTION = click.option(
     '-r', '--gh-repo',
     type=ct.GithubRepositoryType(),
-    help='GitHub repository',
+    help='GitHub repository for filtering',
     expose_value=False,
     callback=register_hidden_param
 )

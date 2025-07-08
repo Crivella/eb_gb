@@ -1,38 +1,32 @@
-# pylint: skip-file
-import click
+"""Fetch commands for the eb_gh_cli CLI."""
 import django
 import django.core
 import django.core.exceptions
 
 from .. import models as m
+from . import click
 from . import click_types as ct
 from . import options as opt
-from .main import eb_gh_cli
-
-
-@eb_gh_cli.group()
-def fetch():
-    """Fetch data from GitHub."""
-    pass
+from .main import fetch
 
 
 @fetch.command()
 @opt.UPDATE_OPTION
 @click.argument('gh_user', type=ct.GithubUserType(allow_new=True))
-def gh_user(gh_user):
+def gh_user(user):
     """Create a GitHub user."""
-    click.echo(f'GitHub user {gh_user.username} fetched successfully.')
+    click.echo(f'GitHub user {user.username} fetched successfully.')
 
 @fetch.command()
 @click.argument('gh_repo', type=str)
 @click.option('--gh_user', type=ct.GithubUserType(allow_new=True), help='GitHub user for the repository')
 def gh_repo(gh_repo, gh_user):
     """Create a GitHub repository."""
-    gh_repo = m.GithubRepository.from_autocomplete_string(
+    repo = m.GithubRepository.from_autocomplete_string(
         f'{gh_user.username}/{gh_repo}',
         allow_new=True,
     )
-    click.echo(f'GitHub repository {gh_repo.name} fetched successfully.')
+    click.echo(f'GitHub repository {repo.name} fetched successfully.')
 
 @fetch.command()
 @opt.FILTERH_USER_OPTION
@@ -40,7 +34,6 @@ def gh_repo(gh_repo, gh_user):
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 def prs_from_repo(gh_repo, verbose):
     """Create a pull request from a GitHub repository."""
-    click.echo(f'Fetching pull requests from repository: {gh_repo.name}')
     try:
         pr_lst = m.GithubPullRequest.from_repository(gh_repo)
         click.echo(f'Pull requests fetched: {len(pr_lst)}')
@@ -57,7 +50,6 @@ def prs_from_repo(gh_repo, verbose):
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 def issues_from_repo(gh_repo, verbose):
     """Create issues from a GitHub repository. Note GH treats PRs as a subset of issues."""
-    click.echo(f'Fetching issues from repository: {gh_repo.name}')
     try:
         issue_lst = m.GithubIssue.from_repository(gh_repo)
         click.echo(f'Issues fetched: {len(issue_lst)}')
@@ -75,7 +67,6 @@ def issues_from_repo(gh_repo, verbose):
 @click.argument('gh_issue', type=ct.GithubIssueType(allow_new=True))
 def comments_from_issue(gh_issue, verbose):
     """Create comments from a GitHub issue."""
-    click.echo(f'Fetching comments for issue: {gh_issue.title}')
     try:
         comment_lst = gh_issue.get_comments()
         click.echo(f'Comments fetched: {len(comment_lst)}')

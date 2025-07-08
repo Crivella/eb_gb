@@ -1,14 +1,9 @@
 """Show commands for the eb_gh_cli CLI."""
-import click
-
+from . import click
 from . import click_types as ct
 from . import options as opt
-from .main import eb_gh_cli
+from .main import show
 
-
-@eb_gh_cli.group()
-def show():
-    """Fetch data from GitHub."""
 
 @show.command()
 @opt.FILTERH_USER_OPTION

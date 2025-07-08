@@ -1,13 +1,15 @@
-# pylint: skip-file
-import logging
-
-import click
+"""Custom Click parameter types for Django models used in the GitHub database CLI."""
+# pylint: disable=cyclic-import
 from click.shell_completion import CompletionItem
 from django.db.models import Q
 
 from .. import models as m
 
-logger = logging.getLogger('gh_db')
+try:
+    import rich_click as click
+except ImportError:
+    import click
+
 
 class DjangoModelType(click.ParamType):
     """
@@ -16,7 +18,7 @@ class DjangoModelType(click.ParamType):
     """
     query_param_name: str = None
     model_class: m.GithubMixin = None
-    help = lambda x: str(x)
+    help = str
 
     filters = None
 
@@ -43,7 +45,10 @@ class DjangoModelType(click.ParamType):
                 update=update
             )
         except ValueError as e:
-            self.fail(f'Item {self.model_class.__name__}<{value}> does not exists and cannot be created: ' + str(e), param, ctx)
+            self.fail(
+                f'Item {self.model_class.__name__}<{value}> does not exists and cannot be created: ' +
+                str(e), param, ctx
+            )
 
         return res
 
@@ -74,10 +79,13 @@ class DjangoModelType(click.ParamType):
         return f'{self.__class__.__name__}({self.model_class.__name__}, {self.query_param_name})'
 
 class GithubUserType(DjangoModelType):
+    """Custom Click parameter type for GitHub Users."""
+    name = 'github_user'
     query_param_name = 'username'
     model_class = m.GithubUser
 
 class GithubRepositoryType(DjangoModelType):
+    """Custom Click parameter type for GitHub Repositories."""
     query_param_name = 'name'
     model_class = m.GithubRepository
 
@@ -86,6 +94,8 @@ class GithubRepositoryType(DjangoModelType):
     }
 
 class GithubIssueType(DjangoModelType):
+    """Custom Click parameter type for GitHub Issues."""
+    name = 'github_issue'
     query_param_name = 'number'
     model_class = m.GithubIssue
 
@@ -100,6 +110,8 @@ class GithubIssueType(DjangoModelType):
     }
 
 class GithubPullRequestType(DjangoModelType):
+    """Custom Click parameter type for GitHub Pull Requests."""
+    name = 'github_pull_request'
     query_param_name = 'number'
     model_class = m.GithubPullRequest
 

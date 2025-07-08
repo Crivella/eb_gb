@@ -1,15 +1,16 @@
-# pylint: skip-file
-import click
+"""eb_gh_cli.cli.main"""
 import django
 import django.core
 import django.core.exceptions
 from django.core.management import call_command
 
+from . import click
+
 
 @click.group()
 @click.version_option()
 def eb_gh_cli():
-    pass
+    """Main entry point for the eb_gh_cli CLI."""
 
 @eb_gh_cli.command()
 def migrate():
@@ -21,6 +22,17 @@ def migrate():
     except django.core.exceptions.ImproperlyConfigured as e:
         click.echo(f'Error during migration: {e}')
 
-# Import groups here to ensure the CLI is aware of them
-from .fetch import fetch
-from .show import show
+@eb_gh_cli.group()
+def fetch():
+    """Fetch data from GitHub."""
+
+@eb_gh_cli.group()
+def show():
+    """Fetch data from GitHub."""
+
+__all__ = [
+    'eb_gh_cli',
+    'migrate',
+    'fetch',
+    'show'
+]

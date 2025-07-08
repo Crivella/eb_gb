@@ -37,6 +37,10 @@ dependencies = [
 Source = "https://github.com/Crivella/eb_gb"
 
 [project.optional-dependencies]
+fancy = [
+    "rich",
+    "rich-click",
+]
 mysql = [
     "pymysql==1.1.0",
 ]
@@ -98,6 +102,8 @@ disable = [
     "global-statement",
     "broad-exception-caught",
     "too-few-public-methods",
+    "redefined-outer-name",
+    "cyclic-import",
 ]
 
 

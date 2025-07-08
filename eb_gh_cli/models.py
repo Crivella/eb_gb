@@ -1,12 +1,13 @@
 """GitHub-related models for Django application."""
 import logging
 import os
+# from datetime import datetime
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
 import django
 import github
-import github.Branch
+# import github.Branch
 import github.Issue
 import github.IssueComment
 import github.Label
@@ -18,6 +19,8 @@ import github.PullRequestReview
 import github.Repository
 from django.db import models
 from github import Auth, Github
+
+from .progress import progress_bar
 
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
 
@@ -198,9 +201,9 @@ class GithubMixin(models.Model):
             defaults=defaults
         )
         if created:
-            logger.info(f"Created new {cls.__name__} instance: {res}")
+            logger.debug(f"Created new {cls.__name__} instance: {res}")
         elif update:
-            logger.info(f"Updated existing {cls.__name__} instance: {res}")
+            logger.debug(f"Updated existing {cls.__name__} instance: {res}")
         return res
 
     @property
@@ -374,7 +377,7 @@ class GithubRepository(GithubMixin):
         return gh.get_repo(f"{self.owner.username}/{self.name}")
 
     def __str__(self):
-        return f"{self.name} by @{self.owner.username}"
+        return f"{self.owner.username}/{self.name}"
 
 # class GithubBranch(GithubMixin):
 #     """Model representing a GitHub branch."""
@@ -564,13 +567,6 @@ class GithubIssue(GithubMixin):
             res &= models.Q(number=int(number))
         return res
 
-    # @classmethod
-    # def from_autocomplete_string(cls, autocomplete_string: str, allow_new = False, update = False):
-    #     filters = cls.autocomplete_string_to_dct(autocomplete_string)
-
-    #     q = cls.objects.filter(**filters)
-    #     return q.get()
-
     @classmethod
     def create_from_obj(cls, obj: github.Issue.Issue, **kwargs) -> 'GithubIssue':
         """
@@ -586,14 +582,16 @@ class GithubIssue(GithubMixin):
         return new
 
     @classmethod
-    def from_repository(cls: T, repository: GithubRepository, filters: dict = None) -> list[T]:
+    def from_repository(cls: T, repository: GithubRepository) -> list[T]:
         """
         Fetch all issues for a given GitHub repository.
         Returns a list of GithubIssue instances.
         """
-        filters = filters or {}
-        filters.setdefault('state', 'all')  # Default to fetching all issues
-        issues = repository.gh_obj.get_issues(**filters)
+        issues = repository.gh_obj.get_issues(state='all')
+        issues.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        issues = progress_bar(
+            issues, description=f"Fetching issues from {repository}"
+        )
         return [cls.create_from_obj(issue, foreign={'repository': repository}) for issue in issues]
 
 
@@ -602,9 +600,15 @@ class GithubIssue(GithubMixin):
         Fetch all comments for this pull request.
         Returns a list of GithubPRComment instances.
         """
+        comments = self.gh_obj.get_comments()
+        comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        comments = progress_bar(
+            comments, description=f"Fetching comments for {self}"
+        )
+
         return [
             GithubIssueComment.create_from_obj(comment, foreign={'issue': self})
-            for comment in self.gh_obj.get_comments()
+            for comment in comments
         ]
 
     @property
@@ -716,21 +720,6 @@ class GithubPullRequest(GithubMixin):
         owner = repo.owner.username if repo.owner else 'unknown'
         return f"{owner}{repo.name}#{self.number}: {self.title} ({'Draft' if self.is_draft else 'PR'})"
 
-    # @classmethod
-    # def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
-    #     """
-    #     Create a GithubPullRequest instance from a dictionary.
-    #     Fetches pull request information from GitHub using the provided token.
-    #     """
-    #     pr_id = dct.get('id')
-    #     repository: GithubRepository = dct.get('repository')
-    #     if isinstance(pr_id, str):
-    #         if not pr_id.isdigit():
-    #             raise ValueError(f"Invalid pull request ID: {pr_id}")
-    #         pr_id = int(pr_id)
-    #     pr = repository.gh_obj.get_pull(pr_id)
-    #     return cls.create_from_obj(pr, foreign={'repository': repository}, update=update)
-
     def get_autocomplete_string(self):
         """
         Return a string representation for autocomplete purposes.
@@ -758,30 +747,40 @@ class GithubPullRequest(GithubMixin):
         return res
 
     @classmethod
-    def create_from_obj(cls,obj: github.PullRequest.PullRequest, **kwargs) -> 'GithubPullRequest':
+    def create_from_obj(cls, obj: github.PullRequest.PullRequest, **kwargs) -> 'GithubPullRequest':
         """
         Create a GithubPullRequest instance from a GitHub pull request object.
         This method is used to create an instance directly from the GitHub API object.
         """
         new = super().create_from_obj(obj, **kwargs)
-        for assignee in obj.assignees:
-            new.assignees.add(GithubUser.from_username(assignee.login))
-        for rev in obj.get_reviews():
-            rev_obj = GithubPRReview.create_from_obj(rev, pull_request=new)
-            new.reviewers.add(rev_obj.created_by)
+        # for assignee in obj.assignees:
+        #     new.assignees.add(GithubUser.from_username(assignee.login))
+        # for rev in obj.get_reviews():
+        #     rev_obj = GithubPRReview.create_from_obj(rev, foreign={'pull_request': new})
+        #     new.reviewers.add(rev_obj.created_by)
         # for participant in pr.get_participants():
         #     # : Handle participants
         return new
 
     @classmethod
-    def from_repository(cls: T, repository: GithubRepository, filters: dict = None) -> list[T]:
+    def from_repository(cls: T, repository: GithubRepository) -> list[T]:
         """
         Fetch all pull requests for a given GitHub repository.
         Returns a list of GithubPullRequest instances.
         """
-        filters = filters or {}
-        filters.setdefault('state', 'all')  # Default to fetching all PRs
-        pull_requests = repository.gh_obj.get_pulls(**filters)
+        pull_requests = repository.gh_obj.get_pulls(state='all', sort='created', direction='desc')
+        pull_requests.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        pull_requests = progress_bar(
+            pull_requests, total=pull_requests.totalCount, description=f'Fetching pull requests from {repository}'
+        )
+
+        # last_created_at = cls.objects.order_by('-created_at').first()
+        # if last_created_at is None:
+
+        # res = []
+        # for pr in pull_requests:
+        #     new = cls.create_from_obj(pr, foreign={'repository': repository})
+        #     if
         return [cls.create_from_obj(pr, foreign={'repository': repository}) for pr in pull_requests]
 
     @property
@@ -864,7 +863,7 @@ class GithubPRReview(GithubMixin):
     ]
 
     @classmethod
-    def create_from_obj(cls,obj: github.PullRequestReview.PullRequestReview, **kwargs) -> 'GithubPRReview':
+    def create_from_obj(cls, obj: github.PullRequestReview.PullRequestReview, **kwargs) -> 'GithubPRReview':
         """
         Create a GithubPRReview instance from a GitHub pull request review object.
         This method is used to create an instance directly from the GitHub API object.
