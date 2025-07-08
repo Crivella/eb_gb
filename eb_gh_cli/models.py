@@ -4,6 +4,7 @@ import os
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
+import django
 import github
 import github.Branch
 import github.Issue
@@ -24,6 +25,11 @@ T = TypeVar('T', bound='GithubMixin')
 
 logger = logging.getLogger('gh_db')
 
+try:
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'eb_gh_cli.settings')
+    django.setup()
+except RuntimeError as e:
+    pass
 
 class NODEFAULT:
     """A sentinel value to indicate that a default value is not provided."""
@@ -46,15 +52,6 @@ class ColObjMap:
         yield self.converter
 
 
-def user_converter(username: str) -> 'GithubUser':
-    """
-    Convert a GitHub username to a GithubUser instance.
-    If the user does not exist, it will create a new instance.
-    """
-    if username is None:
-        return None
-    return GithubUser.from_dct({'username': username}, allow_new=True)
-
 def with_github(func):
     """
     Decorator to provide a GitHub instance to the decorated function.
@@ -71,6 +68,9 @@ def with_github(func):
             return func(*args, gh=gh, **kwargs)
     return wrapper
 
+# NOTES:
+# GithubIssues als inlcude PRs, but they are still treated here as Issues as the returned ID from the REST API is
+# different
 
 class GithubMixin(models.Model):
     """
@@ -99,17 +99,61 @@ class GithubMixin(models.Model):
         """
 
     @classmethod
-    def from_dct(cls: T, dct: dict, allow_new: bool = False, update: bool = False) -> T:
+    def from_autocomplete_string(
+            cls: T, autocomplete_string: str,
+            allow_new: bool = False,
+            update: bool = False
+        ) -> T:
         """
         Create or update an instance from a dictionary.
         If the instance does not exist and allow_new is True, create a new instance.
         """
-        instance = cls.objects.filter(**dct).first()
-        if not instance and not allow_new:
-            raise ValueError(f"{cls.__name__} with {dct} does not exist.")
-        if not instance or update:
-            instance = cls.create_from_dct(dct, update=update)
-        return instance
+        dct = cls.autocomplete_string_to_dct(autocomplete_string)
+        q = cls.objects.filter(**dct)
+        cnt = q.count()
+        if cnt > 1:
+            raise ValueError(
+                f"Multiple {cls.__name__} instances found with {dct}. Use a more specific filter."
+            )
+        if cnt == 1:
+            if update:
+                res = cls.create_from_dct(dct, update=update)
+            else:
+                res = q.first()
+        else:
+            if not allow_new:
+                raise ValueError(f"{cls.__name__} with {dct} does not exist and allow_new is False.")
+            res = cls.create_from_dct(dct)
+        return res
+
+    def get_autocomplete_string(self) -> str:
+        """
+        Return a string representation for autocomplete purposes.
+        This should be overridden in subclasses to provide meaningful information.
+        """
+        raise self.DoesNotSupportDirectCreation(
+            f"{self.__class__.__name__}.get_autocomplete_string must be implemented."
+        )
+
+    @classmethod
+    def autocomplete_string_to_dct(cls, autocomplete_string: str) -> dict:
+        """
+        Convert an autocomplete string to a dictionary.
+        This should be overridden in subclasses to parse the string correctly.
+        """
+        raise cls.DoesNotSupportDirectCreation(
+            f"{cls.__class__.__name__}.autocomplete_string_to_dct must be implemented."
+        )
+
+    @classmethod
+    def filter_autocomplete_string(cls: T, autocomplete_string: str) -> list[T]:
+        """
+        Filter instances based on an autocomplete string.
+        This method should be overridden in subclasses to handle specific filtering logic.
+        """
+        raise cls.DoesNotSupportDirectCreation(
+            f"{cls.__class__.__name__}.filter_autocomplete_string must be implemented."
+        )
 
     @classmethod
     def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
@@ -146,7 +190,6 @@ class GithubMixin(models.Model):
         for key in id_key:
             gh_id = getattr(gh_id, key)
 
-
         for key, val in foreign.items():
             defaults[key] = val
 
@@ -155,9 +198,9 @@ class GithubMixin(models.Model):
             defaults=defaults
         )
         if created:
-            logger.debug(f"Created new {cls.__name__} instance: {res}")
+            logger.info(f"Created new {cls.__name__} instance: {res}")
         elif update:
-            logger.debug(f"Updated existing {cls.__name__} instance: {res}")
+            logger.info(f"Updated existing {cls.__name__} instance: {res}")
         return res
 
     @property
@@ -194,7 +237,7 @@ class GithubUser(GithubMixin):
 
     @classmethod
     @with_github
-    def create_from_dct(cls: T, dct: dict, *, gh: Github, update: bool = False) -> T:
+    def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
         """
         Create a GithubUser instance from a dictionary.
         Fetches user information from GitHub using the provided token.
@@ -210,6 +253,34 @@ class GithubUser(GithubMixin):
     @property
     def gh_obj(self) -> github.NamedUser.NamedUser:
         return super().gh_obj
+
+    @classmethod
+    def from_username(cls: T, username: str) -> T:
+        """
+        Fetch a GitHub user by username.
+        Returns a GithubUser instance.
+        """
+        if username is None:
+            return None
+        user = GithubUser.objects.filter(username=username).first()
+        if user is None:
+            user = cls.create_from_dct({'username': username})
+        return user
+
+    def get_autocomplete_string(self):
+        return self.username
+
+    @classmethod
+    def autocomplete_string_to_dct(cls, autocomplete_string: str) -> dict:
+        """
+        Convert an autocomplete string to a dictionary for GitHub user lookup.
+        The string should be the GitHub username.
+        """
+        return {'username': autocomplete_string}
+
+    @classmethod
+    def filter_autocomplete_string(cls, autocomplete_string):
+        return models.Q(username__istartswith=autocomplete_string)
 
 
     @with_github
@@ -231,7 +302,7 @@ class GithubRepository(GithubMixin):
 
     obj_col_map = [
         ColObjMap('name', 'name'),
-        ColObjMap('owner', 'owner.login', converter=user_converter),
+        ColObjMap('owner', 'owner.login', converter=GithubUser.from_username),
         ColObjMap('description', 'description', ''),
         ColObjMap('url', 'html_url'),
     ]
@@ -244,16 +315,38 @@ class GithubRepository(GithubMixin):
         Fetches repository information from GitHub using the provided token.
         """
         name = dct.get('name')
-        owner = dct.get('owner', None)
-        if owner is None:
-            if '/' in name:
-                if name.count('/') > 1:
-                    raise ValueError(f"Invalid repository name: {name}")
-                owner, name = name.split('/')
-            else:
-                raise ValueError(f"Owner must be specified for repository: {name}")
+        owner = dct.get('owner__username')
         repo = gh.get_repo(f"{owner}/{name}")
         return cls.create_from_obj(repo, update=update)
+
+    def get_autocomplete_string(self):
+        """
+        Return a string representation for autocomplete purposes.
+        This should be overridden in subclasses to provide meaningful information.
+        """
+        return f"{self.owner.username}/{self.name}"
+
+    @classmethod
+    def autocomplete_string_to_dct(cls, autocomplete_string: str) -> dict:
+        """
+        Convert an autocomplete string to a dictionary for GitHub repository lookup.
+        The string should be in the format "owner/repo".
+        """
+        owner, name = autocomplete_string.split('/')
+
+        return {'owner__username': owner, 'name': name}
+
+    @classmethod
+    def filter_autocomplete_string(cls, autocomplete_string: str):
+        """
+        Filter repositories based on an autocomplete string.
+        This method should be overridden in subclasses to handle specific filtering logic.
+        """
+        owner, name = (autocomplete_string.split('/') + [''])[:2]
+        res = models.Q(owner__username__istartswith=owner)
+        if name:
+            res &= models.Q(name__istartswith=name)
+        return res
 
     @classmethod
     def create_from_obj(cls, obj: github.Repository.Repository, **kwargs) -> 'GithubRepository':
@@ -366,7 +459,7 @@ class GithubMilestone(GithubMixin):
         ColObjMap('title', 'title'),
         ColObjMap('description', 'description', ''),
         ColObjMap('state', 'state'),
-        ColObjMap('created_by', 'creator.login', converter=user_converter),
+        ColObjMap('created_by', 'creator.login', converter=GithubUser.from_username),
         ColObjMap('due_on', 'due_on', None),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
@@ -395,6 +488,7 @@ class GithubIssue(GithubMixin):
     )
 
     is_closed = models.BooleanField(default=False)
+    is_pr = models.BooleanField(default=False, help_text='Indicates if the issue is a pull request')
 
     created_by = models.ForeignKey(
         GithubUser, related_name='created_issues', on_delete=models.CASCADE, null=True, blank=True
@@ -420,27 +514,62 @@ class GithubIssue(GithubMixin):
         ColObjMap('body', 'body', ''),
         ColObjMap('number', 'number'),
         ColObjMap('is_closed', 'state', converter=lambda x: x == 'closed'),
-        ColObjMap('created_by', 'user.login', converter=user_converter),
-        ColObjMap('closed_by', 'closed_by.login', None, converter=user_converter),
+        ColObjMap('is_pr', 'pull_request', converter=lambda x: x is not None),
+        ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
+        ColObjMap('closed_by', 'closed_by.login', None, converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
         ColObjMap('closed_at', 'closed_at', None)
     ]
 
+    def get_autocomplete_string(self):
+        """
+        Return a string representation for autocomplete purposes.
+        This should be overridden in subclasses to provide meaningful information.
+        """
+        repo = self.repository
+        owner = repo.owner.username
+        return f"{owner}/{repo.name}#{self.number}: {self.title[:30]}"
+
     @classmethod
-    def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
+    def autocomplete_string_to_dct(cls, autocomplete_string: str) -> dict:
         """
-        Create a GithubIssue instance from a dictionary.
-        Fetches issue information from GitHub using the provided token.
+        Convert an autocomplete string to a dictionary for GitHub issue lookup.
+        The string should be in the format "repository#number: title".
         """
-        gh_id = dct.get('id')
-        repository: GithubRepository = dct.get('repository')
-        if isinstance(gh_id, str):
-            if not gh_id.isdigit():
-                raise ValueError(f"Invalid issue ID: {gh_id}")
-            gh_id = int(id)
-        issue = repository.gh_obj.get_issue(gh_id)
-        return cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
+        data, _ = (autocomplete_string.split(':', 1) + [''])[:2]
+        data, number = (data.split('#', 1) + [''])[:2]
+        owner, repo_name = (data.split('/', 1) + [''])[:2]
+
+        return {
+            'repository__owner__username': owner,
+            'repository__name': repo_name,
+            'number': int(number)
+        }
+
+    @classmethod
+    def filter_autocomplete_string(cls, autocomplete_string: str):
+        """
+        Filter issues based on an autocomplete string.
+        The string should be in the format "repository#number: title".
+        """
+        data, _ = (autocomplete_string.split(':', 1) + [''])[:2]
+        data, number = (data.split('#', 1) + [''])[:2]
+        owner, repo_name = (data.split('/', 1) + [''])[:2]
+
+        res = models.Q(repository__owner__username__istartswith=owner)
+        if repo_name:
+            res &= models.Q(repository__name__istartswith=repo_name)
+        if number:
+            res &= models.Q(number=int(number))
+        return res
+
+    # @classmethod
+    # def from_autocomplete_string(cls, autocomplete_string: str, allow_new = False, update = False):
+    #     filters = cls.autocomplete_string_to_dct(autocomplete_string)
+
+    #     q = cls.objects.filter(**filters)
+    #     return q.get()
 
     @classmethod
     def create_from_obj(cls, obj: github.Issue.Issue, **kwargs) -> 'GithubIssue':
@@ -450,20 +579,23 @@ class GithubIssue(GithubMixin):
         """
         new = super().create_from_obj(obj, **kwargs)
         for assignee in obj.assignees:
-            new.assignees.add(GithubUser.from_dct({'username': assignee.login}, allow_new=True))
+            new.assignees.add(GithubUser.from_username(assignee.login))
         # for participant in issue.participants:
         #     # Handle participants
         new.save()
         return new
 
     @classmethod
-    def from_repository(cls: T, repository: GithubRepository) -> list[T]:
+    def from_repository(cls: T, repository: GithubRepository, filters: dict = None) -> list[T]:
         """
         Fetch all issues for a given GitHub repository.
         Returns a list of GithubIssue instances.
         """
-        issues = repository.gh_obj.get_issues(state='all')
+        filters = filters or {}
+        filters.setdefault('state', 'all')  # Default to fetching all issues
+        issues = repository.gh_obj.get_issues(**filters)
         return [cls.create_from_obj(issue, foreign={'repository': repository}) for issue in issues]
+
 
     def get_comments(self) -> list['GithubIssueComment']:
         """
@@ -488,7 +620,8 @@ class GithubIssue(GithubMixin):
         return self.repository.gh_obj.get_issue(self.number)
 
     def __str__(self):
-        return f"Issue: {self.title} in {self.repository.name}"
+        typ = 'PR' if self.is_pr else 'IS'
+        return f"[{typ}] {self.repository.name} #{self.number:>6d}: {self.title}"
 
 class GithubIssueComment(GithubMixin):
     """Model representing a GitHub comment."""
@@ -505,7 +638,7 @@ class GithubIssueComment(GithubMixin):
     obj_col_map = [
         ColObjMap('body', 'body'),
         ColObjMap('url', 'html_url'),
-        ColObjMap('created_by', 'user.login', converter=user_converter),
+        ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at', NODEFAULT)
     ]
@@ -565,12 +698,12 @@ class GithubPullRequest(GithubMixin):
         ColObjMap('body', 'body', ''),
         ColObjMap('number', 'number'),
 
-        ColObjMap('is_draft', 'draft'),
-        ColObjMap('is_merged', 'merged'),
+        ColObjMap('is_draft', 'draft', False),  # Default false needed to create PR from Issue
+        ColObjMap('is_merged', 'merged', False),
         ColObjMap('is_closed', 'state', converter=lambda x: x == 'closed'),
 
-        ColObjMap('created_by', 'user.login', converter=user_converter),
-        ColObjMap('merged_by', 'merged_by.login', None, converter=user_converter),
+        ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
+        ColObjMap('merged_by', 'merged_by.login', None, converter=GithubUser.from_username),
 
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
@@ -579,22 +712,50 @@ class GithubPullRequest(GithubMixin):
     ]
 
     def __str__(self):
-        return f"PR: {self.title} in {self.repository.name}"
+        repo = self.repository
+        owner = repo.owner.username if repo.owner else 'unknown'
+        return f"{owner}{repo.name}#{self.number}: {self.title} ({'Draft' if self.is_draft else 'PR'})"
+
+    # @classmethod
+    # def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
+    #     """
+    #     Create a GithubPullRequest instance from a dictionary.
+    #     Fetches pull request information from GitHub using the provided token.
+    #     """
+    #     pr_id = dct.get('id')
+    #     repository: GithubRepository = dct.get('repository')
+    #     if isinstance(pr_id, str):
+    #         if not pr_id.isdigit():
+    #             raise ValueError(f"Invalid pull request ID: {pr_id}")
+    #         pr_id = int(pr_id)
+    #     pr = repository.gh_obj.get_pull(pr_id)
+    #     return cls.create_from_obj(pr, foreign={'repository': repository}, update=update)
+
+    def get_autocomplete_string(self):
+        """
+        Return a string representation for autocomplete purposes.
+        This should be overridden in subclasses to provide meaningful information.
+        """
+        repo = self.repository
+        owner = repo.owner.username
+        return f"{owner}/{repo.name}#{self.number}: {self.title[:30]}"
 
     @classmethod
-    def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
+    def filter_autocomplete_string(cls, autocomplete_string: str):
         """
-        Create a GithubPullRequest instance from a dictionary.
-        Fetches pull request information from GitHub using the provided token.
+        Filter issues based on an autocomplete string.
+        The string should be in the format "repository#number: title".
         """
-        pr_id = dct.get('id')
-        repository: GithubRepository = dct.get('repository')
-        if isinstance(pr_id, str):
-            if not pr_id.isdigit():
-                raise ValueError(f"Invalid pull request ID: {pr_id}")
-            pr_id = int(pr_id)
-        pr = repository.gh_obj.get_pull(pr_id)
-        return cls.create_from_obj(pr, foreign={'repository': repository}, update=update)
+        data, _ = (autocomplete_string.split(':', 1) + [''])[:2]
+        data, number = (data.split('#', 1) + [''])[:2]
+        owner, repo_name = (data.split('/', 1) + [''])[:2]
+
+        res = models.Q(owner__username__istartswith=owner)
+        if repo_name:
+            res &= models.Q(repository__name__istartswith=repo_name)
+        if number:
+            res &= models.Q(number=int(number))
+        return res
 
     @classmethod
     def create_from_obj(cls,obj: github.PullRequest.PullRequest, **kwargs) -> 'GithubPullRequest':
@@ -604,7 +765,7 @@ class GithubPullRequest(GithubMixin):
         """
         new = super().create_from_obj(obj, **kwargs)
         for assignee in obj.assignees:
-            new.assignees.add(GithubUser.from_dct({'username': assignee.login}, allow_new=True))
+            new.assignees.add(GithubUser.from_username(assignee.login))
         for rev in obj.get_reviews():
             rev_obj = GithubPRReview.create_from_obj(rev, pull_request=new)
             new.reviewers.add(rev_obj.created_by)
@@ -613,12 +774,14 @@ class GithubPullRequest(GithubMixin):
         return new
 
     @classmethod
-    def from_repository(cls: T, repository: GithubRepository) -> list[T]:
+    def from_repository(cls: T, repository: GithubRepository, filters: dict = None) -> list[T]:
         """
         Fetch all pull requests for a given GitHub repository.
         Returns a list of GithubPullRequest instances.
         """
-        pull_requests = repository.gh_obj.get_pulls(state='all')
+        filters = filters or {}
+        filters.setdefault('state', 'all')  # Default to fetching all PRs
+        pull_requests = repository.gh_obj.get_pulls(**filters)
         return [cls.create_from_obj(pr, foreign={'repository': repository}) for pr in pull_requests]
 
     @property
@@ -649,7 +812,7 @@ class GithubPRComment(GithubMixin):
     obj_col_map = [
         ColObjMap('body', 'body'),
         ColObjMap('url', 'html_url'),
-        ColObjMap('created_by', 'user.login', converter=user_converter),
+        ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
     ]
 
@@ -695,7 +858,7 @@ class GithubPRReview(GithubMixin):
     obj_col_map = [
         ColObjMap('body', 'body'),
         ColObjMap('url', 'html_url'),
-        ColObjMap('created_by', 'user.login', converter=user_converter),
+        ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
         ColObjMap('state', 'state'),
         ColObjMap('submitted_at', 'submitted_at'),
     ]
