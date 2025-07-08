@@ -529,7 +529,7 @@ class GithubIssue(GithubMixin):
         if repo_name:
             res &= models.Q(repository__name__istartswith=repo_name)
         if number:
-            res &= models.Q(number=int(number))
+            res &= models.Q(number__startswith=number)
         return res
 
     @classmethod
@@ -662,6 +662,22 @@ class GithubPullRequest(GithubMixin):
         owner = repo.owner.username if repo.owner else 'unknown'
         return f"{owner}{repo.name}#{self.number}: {self.title} ({'Draft' if self.is_draft else 'PR'})"
 
+    @classmethod
+    def autocomplete_string_to_dct(cls, autocomplete_string: str) -> dict:
+        """
+        Convert an autocomplete string to a dictionary for GitHub issue lookup.
+        The string should be in the format "repository#number: title".
+        """
+        data, _ = (autocomplete_string.split(':', 1) + [''])[:2]
+        data, number = (data.split('#', 1) + [''])[:2]
+        owner, repo_name = (data.split('/', 1) + [''])[:2]
+
+        return {
+            'repository__owner__username': owner,
+            'repository__name': repo_name,
+            'number': int(number)
+        }
+
     def get_autocomplete_string(self):
         """
         Return a string representation for autocomplete purposes.
@@ -669,7 +685,7 @@ class GithubPullRequest(GithubMixin):
         """
         repo = self.repository
         owner = repo.owner.username
-        return f"{owner}/{repo.name}#{self.number}: {self.title[:30]}"
+        return f"{owner}/{repo.name}#{self.number}"
 
     @classmethod
     def filter_autocomplete_string(cls, autocomplete_string: str):
@@ -681,11 +697,11 @@ class GithubPullRequest(GithubMixin):
         data, number = (data.split('#', 1) + [''])[:2]
         owner, repo_name = (data.split('/', 1) + [''])[:2]
 
-        res = models.Q(owner__username__istartswith=owner)
+        res = models.Q(repository__owner__username__istartswith=owner)
         if repo_name:
             res &= models.Q(repository__name__istartswith=repo_name)
         if number:
-            res &= models.Q(number=int(number))
+            res &= models.Q(number__startswith=number)
         return res
 
     @classmethod
