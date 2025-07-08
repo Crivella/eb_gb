@@ -6,14 +6,14 @@ from .main import show
 
 
 @show.command()
-@opt.FILTERH_USER_OPTION
+@opt.FILTER_USER_OPTION
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 def gh_repo(repo):
     """Show a GitHub repository."""
     click.echo(f'GitHub repository: {repo}')
 
 @show.command()
-@opt.FILTERH_USER_OPTION
+@opt.FILTER_USER_OPTION
 @opt.FILTER_REPO_OPTION
 @click.argument('gh_issue', type=ct.GithubIssueType())
 def gh_issue(issue):
@@ -27,7 +27,7 @@ def gh_issue(issue):
     # click.echo(f'Assignee: {gh_issue.assignee.username if gh_issue.assignee else "N/A"}')
 
 @show.command()
-@opt.FILTERH_USER_OPTION
+@opt.FILTER_USER_OPTION
 @opt.FILTER_REPO_OPTION
 @click.argument('gh_pr', type=ct.GithubPullRequestType())
 def gh_pr(pr):

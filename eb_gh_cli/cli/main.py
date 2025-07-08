@@ -28,7 +28,11 @@ def fetch():
 
 @eb_gh_cli.group()
 def show():
-    """Fetch data from GitHub."""
+    """Show  data from GitHub."""
+
+@eb_gh_cli.group()
+def stats():
+    """Stats  data from GitHub."""
 
 __all__ = [
     'eb_gh_cli',

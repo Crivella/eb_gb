@@ -18,18 +18,13 @@ def gh_user(user):
     click.echo(f'GitHub user {user.username} fetched successfully.')
 
 @fetch.command()
-@click.argument('gh_repo', type=str)
-@click.option('--gh_user', type=ct.GithubUserType(allow_new=True), help='GitHub user for the repository')
-def gh_repo(gh_repo, gh_user):
+@click.argument('gh_repo', type=ct.GithubRepositoryType(allow_new=True))
+def gh_repo(gh_repo):
     """Create a GitHub repository."""
-    repo = m.GithubRepository.from_autocomplete_string(
-        f'{gh_user.username}/{gh_repo}',
-        allow_new=True,
-    )
-    click.echo(f'GitHub repository {repo.name} fetched successfully.')
+    click.echo(f'GitHub repository {gh_repo.name} fetched successfully.')
 
 @fetch.command()
-@opt.FILTERH_USER_OPTION
+@opt.FILTER_USER_OPTION
 @opt.VERBOSE_OPTION
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 def prs_from_repo(gh_repo, verbose):
@@ -44,7 +39,7 @@ def prs_from_repo(gh_repo, verbose):
         click.echo(f'Error creating pull request: {e}')
 
 @fetch.command()
-@opt.FILTERH_USER_OPTION
+@opt.FILTER_USER_OPTION
 @opt.VERBOSE_OPTION
 @opt.UPDATE_OPTION
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
@@ -60,7 +55,7 @@ def issues_from_repo(gh_repo, verbose):
         click.echo(f'Error creating issue: {e}')
 
 @fetch.command()
-@opt.FILTERH_USER_OPTION
+@opt.FILTER_USER_OPTION
 @opt.FILTER_REPO_OPTION
 @opt.VERBOSE_OPTION
 @opt.UPDATE_OPTION

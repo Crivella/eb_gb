@@ -5,5 +5,5 @@ try:
 except ImportError:
     import click
 
-from . import fetch, show
+from . import fetch, show, stats
 from .main import eb_gh_cli

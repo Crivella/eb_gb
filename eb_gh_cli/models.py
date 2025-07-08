@@ -9,13 +9,8 @@ import django
 import github
 # import github.Branch
 import github.Issue
-import github.IssueComment
-import github.Label
-import github.Milestone
 import github.NamedUser
 import github.PullRequest
-import github.PullRequestComment
-import github.PullRequestReview
 import github.Repository
 from django.db import models
 from github import Auth, Github
@@ -71,9 +66,6 @@ def with_github(func):
             return func(*args, gh=gh, **kwargs)
     return wrapper
 
-# NOTES:
-# GithubIssues als inlcude PRs, but they are still treated here as Issues as the returned ID from the REST API is
-# different
 
 class GithubMixin(models.Model):
     """
@@ -228,7 +220,6 @@ class GithubUser(GithubMixin):
 
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
-    # avatar_url = models.URLField(blank=True, null=True)
 
     obj_col_map = [
         ColObjMap('username', 'login'),
@@ -237,6 +228,9 @@ class GithubUser(GithubMixin):
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
     ]
+
+    def __str__(self):
+        return self.username
 
     @classmethod
     @with_github
@@ -252,10 +246,6 @@ class GithubUser(GithubMixin):
     @classmethod
     def create_from_obj(cls, obj: github.NamedUser.NamedUser, **kwargs) -> 'GithubUser':
         return super().create_from_obj(obj, **kwargs)
-
-    @property
-    def gh_obj(self) -> github.NamedUser.NamedUser:
-        return super().gh_obj
 
     @classmethod
     def from_username(cls: T, username: str) -> T:
@@ -294,9 +284,6 @@ class GithubUser(GithubMixin):
         """
         return gh.get_user_by_id(self.gh_id)
 
-    def __str__(self):
-        return self.username
-
 class GithubRepository(GithubMixin):
     """Model representing a GitHub repository."""
     name = models.CharField(max_length=255)
@@ -309,6 +296,9 @@ class GithubRepository(GithubMixin):
         ColObjMap('description', 'description', ''),
         ColObjMap('url', 'html_url'),
     ]
+
+    def __str__(self):
+        return f"{self.owner.username}/{self.name}"
 
     @classmethod
     @with_github
@@ -352,10 +342,6 @@ class GithubRepository(GithubMixin):
         return res
 
     @classmethod
-    def create_from_obj(cls, obj: github.Repository.Repository, **kwargs) -> 'GithubRepository':
-        return super().create_from_obj(obj, **kwargs)
-
-    @classmethod
     def from_user(cls: T, user: GithubUser) -> list[T]:
         """
         Fetch all repositories for a given GitHub user.
@@ -364,10 +350,6 @@ class GithubRepository(GithubMixin):
         repos = user.gh_obj.get_repos()
         return [cls.create_from_obj(repo) for repo in repos]
 
-    @property
-    def gh_obj(self) -> github.Repository.Repository:
-        return super().gh_obj
-
     @with_github
     def get_gh_obj(self, *, gh: Github) -> github.Repository.Repository:
         """
@@ -375,9 +357,6 @@ class GithubRepository(GithubMixin):
         This method is used to ensure that the GitHub repository object is always up-to-date.
         """
         return gh.get_repo(f"{self.owner.username}/{self.name}")
-
-    def __str__(self):
-        return f"{self.owner.username}/{self.name}"
 
 # class GithubBranch(GithubMixin):
 #     """Model representing a GitHub branch."""
@@ -427,17 +406,8 @@ class GithubLabel(GithubMixin):
         ColObjMap('url', 'url'),
     ]
 
-    @classmethod
-    def create_from_obj(cls, obj: github.Label.Label, **kwargs) -> 'GithubLabel':
-        """
-        Create a GithubLabel instance from a GitHub label object.
-        This method is used to create an instance directly from the GitHub API object.
-        """
-        return super().create_from_obj(obj, **kwargs)
-
-    @property
-    def gh_obj(self) -> github.Label.Label:
-        return super().gh_obj
+    def __str__(self):
+        return f"{self.repository.name}#{self.name}"
 
 class GithubMilestone(GithubMixin):
     """Model representing a GitHub milestone."""
@@ -469,17 +439,8 @@ class GithubMilestone(GithubMixin):
         ColObjMap('closed_at', 'closed_at', None)
     ]
 
-    @classmethod
-    def create_from_obj(cls,obj: github.Milestone.Milestone, **kwargs) -> 'GithubMilestone':
-        """
-        Create a GithubMilestone instance from a GitHub milestone object.
-        This method is used to create an instance directly from the GitHub API object.
-        """
-        return super().create_from_obj(obj, **kwargs)
-
-    @property
-    def gh_obj(self) -> github.Milestone.Milestone:
-        return super().gh_obj
+    def __str__(self):
+        return f"{self.repository.name}#{self.title} ({self.state})"
 
 class GithubIssue(GithubMixin):
     """Model representing a GitHub issue."""
@@ -525,6 +486,10 @@ class GithubIssue(GithubMixin):
         ColObjMap('closed_at', 'closed_at', None)
     ]
 
+    def __str__(self):
+        typ = 'PR' if self.is_pr else 'IS'
+        return f"[{typ}] {self.repository.name} #{self.number:>6d}: {self.title}"
+
     def get_autocomplete_string(self):
         """
         Return a string representation for autocomplete purposes.
@@ -568,20 +533,6 @@ class GithubIssue(GithubMixin):
         return res
 
     @classmethod
-    def create_from_obj(cls, obj: github.Issue.Issue, **kwargs) -> 'GithubIssue':
-        """
-        Create a GithubIssue instance from a GitHub issue object.
-        This method is used to create an instance directly from the GitHub API object.
-        """
-        new = super().create_from_obj(obj, **kwargs)
-        for assignee in obj.assignees:
-            new.assignees.add(GithubUser.from_username(assignee.login))
-        # for participant in issue.participants:
-        #     # Handle participants
-        new.save()
-        return new
-
-    @classmethod
     def from_repository(cls: T, repository: GithubRepository) -> list[T]:
         """
         Fetch all issues for a given GitHub repository.
@@ -606,14 +557,24 @@ class GithubIssue(GithubMixin):
             comments, description=f"Fetching comments for {self}"
         )
 
-        return [
-            GithubIssueComment.create_from_obj(comment, foreign={'issue': self})
-            for comment in comments
-        ]
+        res = []
+        for comment in comments:
+            comment_obj = GithubIssueComment.create_from_obj(comment, foreign={'issue': self})
+            res.append(comment_obj)
 
-    @property
-    def gh_obj(self) -> github.Issue.Issue:
-        return super().gh_obj
+        return res
+
+    def get_assignes(self) -> list[GithubUser]:
+        """"Fetch the assignees data for the issue."""
+        users = [GithubUser.from_username(assigne.login) for assigne in self.gh_obj.assignees]
+        self.assignees.clear()  # Clear existing assignees
+        self.assignees.add(*users)
+
+        return users
+
+    def get_participants(self) -> list[GithubUser]:
+        """Fetch the participants data for the issue."""
+        raise NotImplementedError('Need to implement participation from both commenters and other')
 
     @with_github
     def get_gh_obj(self, *, gh: Github) -> github.Issue.Issue:
@@ -622,10 +583,6 @@ class GithubIssue(GithubMixin):
         This method is used to ensure that the GitHub issue object is always up-to-date.
         """
         return self.repository.gh_obj.get_issue(self.number)
-
-    def __str__(self):
-        typ = 'PR' if self.is_pr else 'IS'
-        return f"[{typ}] {self.repository.name} #{self.number:>6d}: {self.title}"
 
 class GithubIssueComment(GithubMixin):
     """Model representing a GitHub comment."""
@@ -647,18 +604,6 @@ class GithubIssueComment(GithubMixin):
         ColObjMap('updated_at', 'updated_at', NODEFAULT)
     ]
 
-    @classmethod
-    def create_from_obj(cls,obj: github.IssueComment.IssueComment, **kwargs) -> 'GithubIssueComment':
-        """
-        Create a GithubComment instance from a GitHub issue comment object.
-        This method is used to create an instance directly from the GitHub API object.
-        """
-        return super().create_from_obj(obj, **kwargs)
-
-    @property
-    def gh_obj(self) -> github.IssueComment.IssueComment:
-        return super().gh_obj
-
 class GithubPullRequest(GithubMixin):
     """Model representing a GitHub Pull Request."""
     title = models.CharField(max_length=255)
@@ -678,9 +623,6 @@ class GithubPullRequest(GithubMixin):
     merged_by = models.ForeignKey(
         GithubUser, related_name='merged_pull_requests', on_delete=models.CASCADE, null=True, blank=True
         )
-    # closed_by = models.ForeignKey(
-    #     GithubUser, related_name='closed_pull_requests', on_delete=models.CASCADE, null=True, blank=True
-    # )
 
     assignees = models.ManyToManyField(GithubUser, related_name='assigned_pull_requests', blank=True)
     reviewers = models.ManyToManyField(GithubUser, related_name='reviewed_pull_requests', blank=True)
@@ -747,23 +689,7 @@ class GithubPullRequest(GithubMixin):
         return res
 
     @classmethod
-    def create_from_obj(cls, obj: github.PullRequest.PullRequest, **kwargs) -> 'GithubPullRequest':
-        """
-        Create a GithubPullRequest instance from a GitHub pull request object.
-        This method is used to create an instance directly from the GitHub API object.
-        """
-        new = super().create_from_obj(obj, **kwargs)
-        # for assignee in obj.assignees:
-        #     new.assignees.add(GithubUser.from_username(assignee.login))
-        # for rev in obj.get_reviews():
-        #     rev_obj = GithubPRReview.create_from_obj(rev, foreign={'pull_request': new})
-        #     new.reviewers.add(rev_obj.created_by)
-        # for participant in pr.get_participants():
-        #     # : Handle participants
-        return new
-
-    @classmethod
-    def from_repository(cls: T, repository: GithubRepository) -> list[T]:
+    def from_repository(cls, repository: GithubRepository) -> list['GithubPullRequest']:
         """
         Fetch all pull requests for a given GitHub repository.
         Returns a list of GithubPullRequest instances.
@@ -777,15 +703,60 @@ class GithubPullRequest(GithubMixin):
         # last_created_at = cls.objects.order_by('-created_at').first()
         # if last_created_at is None:
 
-        # res = []
-        # for pr in pull_requests:
-        #     new = cls.create_from_obj(pr, foreign={'repository': repository})
-        #     if
-        return [cls.create_from_obj(pr, foreign={'repository': repository}) for pr in pull_requests]
+        res = []
+        for pr in pull_requests:
+            pr_obj = cls.create_from_obj(pr, foreign={'repository': repository})
+            res.append(pr_obj)
 
-    @property
-    def gh_obj(self) -> github.PullRequest.PullRequest:
-        return super().gh_obj
+        return res
+
+    def get_comments(self) -> list['GithubPRComment']:
+        """
+        Fetch all comments for this pull request.
+        Returns a list of GithubPRComment instances.
+        """
+        comments = self.gh_obj.get_comments()
+        comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        comments = progress_bar(
+            comments, description=f"Fetching comments for {self}"
+        )
+
+        res = []
+        for comment in comments:
+            comment_obj = GithubPRComment.create_from_obj(comment, foreign={'pull_request': self})
+            res.append(comment_obj)
+
+        return res
+
+    def get_assignes(self) -> list[GithubUser]:
+        """"Fetch the assignees data for the issue."""
+        users = [GithubUser.from_username(assigne.login) for assigne in self.gh_obj.assignees]
+        self.assignees.clear()  # Clear existing assignees
+        self.assignees.add(*users)
+
+        return users
+
+    def get_reviews(self) -> list['GithubPRReview']:
+        """Fetch the reviewes data for the pull request."""
+        reviews = self.gh_obj.get_reviews()
+        reviews.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        reviews = progress_bar(
+            reviews, description=f"Fetching reviews for {self}"
+        )
+        res = []
+        reviewers = []
+        for review in reviews:
+            review_obj = GithubPRReview.create_from_obj(review, foreign={'pull_request': self})
+            reviewers.append(review_obj.created_by)
+            res.append(review_obj)
+        self.reviewers.clear()  # Clear existing reviewers
+        self.reviewers.add(*reviewers)
+
+        return res
+
+    def get_participants(self) -> list[GithubUser]:
+        """Fetch the participants data for the issue."""
+        raise NotImplementedError('Need to implement participation from both commenters and other')
 
     @with_github
     def get_gh_obj(self, *, gh: Github) -> github.PullRequest.PullRequest:
@@ -793,8 +764,7 @@ class GithubPullRequest(GithubMixin):
         Fetch the GitHub pull request object using the provided GitHub instance.
         This method is used to ensure that the GitHub pull request object is always up-to-date.
         """
-        repo = self.repository.gh_obj
-        return repo.get_pull(self.pk)
+        return self.repository.gh_obj.get_pull(self.number)
 
 class GithubPRComment(GithubMixin):
     """Model representing a comment on a GitHub Pull Request."""
@@ -815,26 +785,17 @@ class GithubPRComment(GithubMixin):
         ColObjMap('created_at', 'created_at'),
     ]
 
-    @classmethod
-    def create_from_obj(cls,obj: github.PullRequestComment.PullRequestComment, **kwargs) -> 'GithubPRComment':
-        """
-        Create a GithubPRComment instance from a GitHub pull request comment object.
-        This method is used to create an instance directly from the GitHub API object.
-        """
-        return super().create_from_obj(obj, **kwargs)
+    def __str__(self):
+        return f"{self.pull_request} : {self.body[:30]}"
 
-    @classmethod
-    def from_pull_request(cls, pull_request: GithubPullRequest) -> list['GithubPRComment']:
-        """
-        Fetch all comments for a given GitHub pull request.
-        Returns a list of GithubPRComment instances.
-        """
-        comments = pull_request.gh_obj.get_issue_comments()
-        return [cls.create_from_obj(comment, foreign={'pull_request': pull_request}) for comment in comments]
-
-    @property
-    def gh_obj(self) -> github.PullRequestComment.PullRequestComment:
-        return super().gh_obj
+    # @classmethod
+    # def from_pull_request(cls, pull_request: GithubPullRequest) -> list['GithubPRComment']:
+    #     """
+    #     Fetch all comments for a given GitHub pull request.
+    #     Returns a list of GithubPRComment instances.
+    #     """
+    #     comments = pull_request.gh_obj.get_issue_comments()
+    #     return [cls.create_from_obj(comment, foreign={'pull_request': pull_request}) for comment in comments]
 
 class GithubPRReview(GithubMixin):
     """Model representing a review on a GitHub Pull Request."""
@@ -862,19 +823,14 @@ class GithubPRReview(GithubMixin):
         ColObjMap('submitted_at', 'submitted_at'),
     ]
 
-    @classmethod
-    def create_from_obj(cls, obj: github.PullRequestReview.PullRequestReview, **kwargs) -> 'GithubPRReview':
-        """
-        Create a GithubPRReview instance from a GitHub pull request review object.
-        This method is used to create an instance directly from the GitHub API object.
-        """
-        return super().create_from_obj(obj, **kwargs)
+    def __str__(self):
+        return f"{self.pull_request} : {self.body[:30]} ({self.state})"
 
-    @classmethod
-    def from_pull_request(cls, pull_request: GithubPullRequest) -> list['GithubPRReview']:
-        """
-        Fetch all reviews for a given GitHub pull request.
-        Returns a list of GithubPRReview instances.
-        """
-        reviews = pull_request.gh_obj.get_reviews()
-        return [cls.create_from_obj(review, foreign={'pull_request': pull_request}) for review in reviews]
+    # @classmethod
+    # def from_pull_request(cls, pull_request: GithubPullRequest) -> list['GithubPRReview']:
+    #     """
+    #     Fetch all reviews for a given GitHub pull request.
+    #     Returns a list of GithubPRReview instances.
+    #     """
+    #     reviews = pull_request.gh_obj.get_reviews()
+    #     return [cls.create_from_obj(review, foreign={'pull_request': pull_request}) for review in reviews]

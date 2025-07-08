@@ -23,7 +23,7 @@ UPDATE_OPTION = click.option(
     help='Update existing GitHub Object if it exists'
 )
 
-FILTERH_USER_OPTION = click.option(
+FILTER_USER_OPTION = click.option(
     '-u', '--gh-user',
     type=ct.GithubUserType(),
     help='GitHub user for filtering',
