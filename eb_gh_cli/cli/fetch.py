@@ -4,6 +4,7 @@ import django.core
 import django.core.exceptions
 
 from .. import models as m
+from ..progress import progress_bar
 from . import click
 from . import click_types as ct
 from . import options as opt
@@ -70,3 +71,45 @@ def comments_from_issue(gh_issue, verbose):
                 click.echo(f'Comment created: {comment.body[:100]} (ID: {comment.id} by {comment.created_by.username})')
     except django.core.exceptions.ValidationError as e:
         click.echo(f'Error creating comment: {e}')
+
+@fetch.command()
+@opt.FILTER_USER_OPTION
+@click.option('--update-open', is_flag=True, default=False, help='Update open issues and PRs.')
+@click.argument('gh-repo', type=ct.GithubRepositoryType())
+def sync_repo(gh_repo: m.GithubRepository, update_open: bool):
+    """Synchronize a GitHub repository Issue and PRs with the database."""
+    try:
+        issue_lst = m.GithubIssue.from_repository(gh_repo, do_prs=True)
+        click.echo(f'Issues fetched: {len(issue_lst)}')
+    except django.core.exceptions.ValidationError as e:
+        click.echo(f'Error creating issue: {e}')
+
+    click.echo(f'Pull requests fetched: {issue_lst}')
+    if not update_open:
+        click.echo('Skipping update of open issues and PRs.')
+        return
+
+    # Avoid updating issues that were just fetched
+    numbers = [issue.number for issue in issue_lst]
+
+    q = gh_repo.issues
+    q = q.filter(is_closed=False)
+    q = q.exclude(number__in=numbers)
+    open_issues = q.all()
+    open_issues = progress_bar(
+        open_issues,
+        description=f'Updating {len(open_issues)} open issues',
+    )
+    for issue in open_issues:
+        issue.update()
+
+    q = gh_repo.pull_requests
+    q = q.filter(is_merged=False, is_closed=False)
+    q = q.exclude(number__in=numbers)
+    open_prs = q.all()
+    open_prs = progress_bar(
+        open_prs,
+        description=f'Updating {len(open_prs)} open pull requests',
+    )
+    for pr in open_prs:
+        pr.update()

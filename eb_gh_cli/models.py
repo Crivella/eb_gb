@@ -1,16 +1,22 @@
 """GitHub-related models for Django application."""
 import logging
 import os
-# from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Generic, TypeVar
 
 import django
 import github
 # import github.Branch
+import github.GithubObject
 import github.Issue
+import github.IssueComment
+import github.Label
+import github.Milestone
 import github.NamedUser
 import github.PullRequest
+import github.PullRequestComment
+import github.PullRequestReview
 import github.Repository
 from django.db import models
 from github import Auth, Github
@@ -20,6 +26,8 @@ from .progress import progress_bar
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
 
 T = TypeVar('T', bound='GithubMixin')
+# https://stackoverflow.com/questions/61146406/
+O = TypeVar('O', bound=github.GithubObject.GithubObject)
 
 logger = logging.getLogger('gh_db')
 
@@ -67,10 +75,8 @@ def with_github(func):
     return wrapper
 
 
-class GithubMixin(models.Model):
-    """
-    Mixin for common fields used in GitHub-related models.
-    """
+class GithubMixin(models.Model, Generic[O]):
+    """Mixin for common fields used in GitHub-related models."""
     gh_id = models.BigIntegerField(unique=True, null=True, help_text='GitHub ID of the object')
     url = models.URLField(max_length=255, blank=True, null=True)
 
@@ -199,7 +205,7 @@ class GithubMixin(models.Model):
         return res
 
     @property
-    def gh_obj(self):
+    def gh_obj(self) -> O:
         """Retrieve the GitHub object associated with this instance."""
         if self._gh_obj is None:
             self._gh_obj = self.get_gh_obj()
@@ -213,7 +219,7 @@ class GithubMixin(models.Model):
         """
         raise self.DoesNotSupportDirectCreation(f"{self.__class__.__name__}.get_gh_obj must be implemented.")
 
-class GithubUser(GithubMixin):
+class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
     """Model representing a GitHub user."""
     username = models.CharField(max_length=255, unique=True)
     email = models.EmailField(unique=False, blank=True, null=True)
@@ -284,7 +290,7 @@ class GithubUser(GithubMixin):
         """
         return gh.get_user_by_id(self.gh_id)
 
-class GithubRepository(GithubMixin):
+class GithubRepository(GithubMixin[github.Repository.Repository]):
     """Model representing a GitHub repository."""
     name = models.CharField(max_length=255)
     owner = models.ForeignKey(GithubUser, related_name='repositories', on_delete=models.CASCADE)
@@ -393,7 +399,7 @@ class GithubRepository(GithubMixin):
 #     def gh_obj(self) -> github.Branch.Branch:
 #         return super().gh_obj
 
-class GithubLabel(GithubMixin):
+class GithubLabel(GithubMixin[github.Label.Label]):
     """Model representing a GitHub label."""
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -409,7 +415,7 @@ class GithubLabel(GithubMixin):
     def __str__(self):
         return f"{self.repository.name}#{self.name}"
 
-class GithubMilestone(GithubMixin):
+class GithubMilestone(GithubMixin[github.Milestone.Milestone]):
     """Model representing a GitHub milestone."""
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -442,7 +448,7 @@ class GithubMilestone(GithubMixin):
     def __str__(self):
         return f"{self.repository.name}#{self.title} ({self.state})"
 
-class GithubIssue(GithubMixin):
+class GithubIssue(GithubMixin[github.Issue.Issue]):
     """Model representing a GitHub issue."""
     class Meta:
         unique_together = ('repository', 'number')
@@ -535,18 +541,51 @@ class GithubIssue(GithubMixin):
         return res
 
     @classmethod
-    def from_repository(cls: T, repository: GithubRepository) -> list[T]:
+    def from_repository(
+            cls: T, repository: GithubRepository,
+            do_prs: bool = False,
+            update: bool = False,
+            since: datetime = None
+        ) -> list[T]:
         """
         Fetch all issues for a given GitHub repository.
         Returns a list of GithubIssue instances.
         """
-        issues = repository.gh_obj.get_issues(state='all')
+        filter_args = {
+            'state': 'all',
+            'sort': 'created',
+            'direction': 'asc'
+        }
+        if update:
+            pass
+        else:
+            if since is None:
+                last_created = cls.objects.filter(repository=repository).order_by('-created_at').first()
+                if last_created:
+                    since = last_created.created_at + timedelta(seconds=1)
+                logger.info(f"Fetching from last created issue: {last_created},  since: {since}")
+        if since:
+            filter_args['since'] = since
+
+        issues = repository.gh_obj.get_issues(**filter_args)
         issues.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
         issues = progress_bar(
             issues, description=f"Fetching issues from {repository}"
         )
-        return [cls.create_from_obj(issue, foreign={'repository': repository}) for issue in issues]
+        res = []
+        for issue in issues:
+            issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
+            res.append(issue_obj)
+            if do_prs and issue.pull_request:
+                GithubPullRequest.from_number(repository=repository, number=issue.number, update=update)
+        return res
 
+    def update(self):
+        """
+        Update the pull request object from GitHub.
+        This method fetches the latest data from GitHub and updates the instance.
+        """
+        self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
 
     def get_comments(self) -> list['GithubIssueComment']:
         """
@@ -586,7 +625,7 @@ class GithubIssue(GithubMixin):
         """
         return self.repository.gh_obj.get_issue(self.number)
 
-class GithubIssueComment(GithubMixin):
+class GithubIssueComment(GithubMixin[github.IssueComment.IssueComment]):
     """Model representing a GitHub comment."""
     body = models.TextField()
     issue = models.ForeignKey('GithubIssue', related_name='comments', on_delete=models.CASCADE)
@@ -606,7 +645,7 @@ class GithubIssueComment(GithubMixin):
         ColObjMap('updated_at', 'updated_at', NODEFAULT)
     ]
 
-class GithubPullRequest(GithubMixin):
+class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
     """Model representing a GitHub Pull Request."""
     class Meta:
         unique_together = ('repository', 'number')
@@ -730,6 +769,22 @@ class GithubPullRequest(GithubMixin):
 
         return res
 
+    @classmethod
+    def from_number(cls, repository: GithubRepository, number: int, update: bool = False) -> 'GithubPullRequest':
+        """
+        Fetch a pull request by its number from the given repository.
+        Returns a GithubPullRequest instance.
+        """
+        pr = repository.gh_obj.get_pull(number)
+        return cls.create_from_obj(pr, foreign={'repository': repository}, update=update)
+
+    def update(self):
+        """
+        Update the pull request object from GitHub.
+        This method fetches the latest data from GitHub and updates the instance.
+        """
+        self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
+
     def get_comments(self) -> list['GithubPRComment']:
         """
         Fetch all comments for this pull request.
@@ -786,7 +841,7 @@ class GithubPullRequest(GithubMixin):
         """
         return self.repository.gh_obj.get_pull(self.number)
 
-class GithubPRComment(GithubMixin):
+class GithubPRComment(GithubMixin[github.PullRequestComment.PullRequestComment]):
     """Model representing a comment on a GitHub Pull Request."""
     body = models.TextField()
     pull_request = models.ForeignKey(GithubPullRequest, related_name='comments', on_delete=models.CASCADE)
@@ -817,7 +872,7 @@ class GithubPRComment(GithubMixin):
     #     comments = pull_request.gh_obj.get_issue_comments()
     #     return [cls.create_from_obj(comment, foreign={'pull_request': pull_request}) for comment in comments]
 
-class GithubPRReview(GithubMixin):
+class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
     """Model representing a review on a GitHub Pull Request."""
     body = models.TextField()
     pull_request = models.ForeignKey(GithubPullRequest, related_name='reviews', on_delete=models.CASCADE)
