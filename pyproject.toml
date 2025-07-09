@@ -104,6 +104,7 @@ disable = [
     "too-few-public-methods",
     "redefined-outer-name",
     "cyclic-import",
+    "too-many-branches",
 ]
 
 
