@@ -216,7 +216,7 @@ class GithubMixin(models.Model):
 class GithubUser(GithubMixin):
     """Model representing a GitHub user."""
     username = models.CharField(max_length=255, unique=True)
-    email = models.EmailField(unique=True, blank=True, null=True)
+    email = models.EmailField(unique=False, blank=True, null=True)
 
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
@@ -444,11 +444,13 @@ class GithubMilestone(GithubMixin):
 
 class GithubIssue(GithubMixin):
     """Model representing a GitHub issue."""
+    class Meta:
+        unique_together = ('repository', 'number')
     title = models.CharField(max_length=255)
     body = models.TextField(blank=True, null=True)
     repository = models.ForeignKey(GithubRepository, related_name='issues', on_delete=models.CASCADE)
     number = models.PositiveIntegerField(
-        unique=True, null=True, blank=True, help_text='Issue number in the repository'
+        unique=False, null=True, blank=True, help_text='Issue number in the repository'
     )
 
     is_closed = models.BooleanField(default=False)
@@ -606,11 +608,13 @@ class GithubIssueComment(GithubMixin):
 
 class GithubPullRequest(GithubMixin):
     """Model representing a GitHub Pull Request."""
+    class Meta:
+        unique_together = ('repository', 'number')
     title = models.CharField(max_length=255)
     body = models.TextField(blank=True, null=True)
     repository = models.ForeignKey(GithubRepository, related_name='pull_requests', on_delete=models.CASCADE)
     number = models.PositiveIntegerField(
-        unique=True, null=True, blank=True, help_text='Pull request number in the repository'
+        unique=False, null=True, blank=True, help_text='Pull request number in the repository'
     )
 
     is_draft = models.BooleanField(default=False)
