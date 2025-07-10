@@ -19,6 +19,8 @@ Optional dependencies:
 
 ## Usage
 
+**TOKEN**: Set the environment variable `GITHUB_TOKEN` to your GitHub personal access token with the necessary permissions.
+
 Enable autocomplete (run or add this to your `.bashrc` or venv activation script):
 
 ```bash
