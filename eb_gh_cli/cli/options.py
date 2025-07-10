@@ -38,3 +38,12 @@ FILTER_REPO_OPTION = click.option(
     expose_value=False,
     callback=register_hidden_param
 )
+
+SINCE_OPTION = click.option(
+    '--since',
+    type=click.DateTime(),
+    default=None,
+    help='Filter results since this date (inclusive)',
+    # expose_value=False,
+    # callback=register_hidden_param
+)

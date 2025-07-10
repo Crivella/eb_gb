@@ -1,10 +1,11 @@
 """Stats commands for the eb_gh_cli eb CLI."""
 import re
+from datetime import datetime
 
 from ... import models as m
 from .. import click
 from .. import click_types as ct
-# from . import options as opt
+from .. import options as opt
 from . import eb
 
 # from django.db import models as dmod
@@ -20,10 +21,17 @@ ec_pr_title_rgx = re.compile(
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--tc-filter', type=str, help='Filter by toolchain.')
 @click.option('--mclass-filter', type=str, help='Filter by module class.')
-def group_open_prs(gh_repo: m.GithubRepository, tc_filter: str = None, mclass_filter: str = None):
+@opt.SINCE_OPTION
+def group_open_prs(
+        gh_repo: m.GithubRepository,
+        tc_filter: str = None, mclass_filter: str = None,
+        since: datetime = None
+    ):
     """Show the top open PRs for a GitHub repository."""
     q = m.GithubPullRequest.objects
     q = q.filter(is_closed=False, is_merged=False, repository=gh_repo)
+    if since:
+        q = q.filter(created_at__gte=since)
 
     pr_lst = q.all()
 
