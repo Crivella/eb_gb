@@ -84,7 +84,6 @@ def sync_repo(gh_repo: m.GithubRepository, update_open: bool):
     except django.core.exceptions.ValidationError as e:
         click.echo(f'Error creating issue: {e}')
 
-    click.echo(f'Pull requests fetched: {issue_lst}')
     if not update_open:
         click.echo('Skipping update of open issues and PRs.')
         return

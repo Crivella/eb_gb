@@ -16,17 +16,13 @@ class DjangoModelType(click.ParamType):
     A custom Click parameter type for Django model instances.
     This type can be used to retrieve a model instance by its primary key.
     """
-    query_param_name: str = None
     model_class: m.GithubMixin = None
-    help = str
 
-    filters = None
+    filters: dict = None
 
     def __init__(self, allow_new: bool = False, allow_list: bool = False):
         if self.model_class is None:
             raise ValueError('model_class must be set for DjangoModelType')
-        if self.query_param_name is None:
-            raise ValueError('query_param must be set for DjangoModelType')
         super().__init__()
 
         self.allow_new = allow_new
@@ -68,25 +64,19 @@ class DjangoModelType(click.ParamType):
         choices = q.all()
         return [
             CompletionItem(
-                # getattr(obj, self.query_param_name),
                 obj.get_autocomplete_string(),
                 help=str(obj)
             )
             for obj in choices
         ]
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}({self.model_class.__name__}, {self.query_param_name})'
-
 class GithubUserType(DjangoModelType):
     """Custom Click parameter type for GitHub Users."""
     name = 'github_user'
-    query_param_name = 'username'
     model_class = m.GithubUser
 
 class GithubRepositoryType(DjangoModelType):
     """Custom Click parameter type for GitHub Repositories."""
-    query_param_name = 'name'
     model_class = m.GithubRepository
 
     filters = {
@@ -96,7 +86,6 @@ class GithubRepositoryType(DjangoModelType):
 class GithubIssueType(DjangoModelType):
     """Custom Click parameter type for GitHub Issues."""
     name = 'github_issue'
-    query_param_name = 'number'
     model_class = m.GithubIssue
 
     filters = {
@@ -112,7 +101,6 @@ class GithubIssueType(DjangoModelType):
 class GithubPullRequestType(DjangoModelType):
     """Custom Click parameter type for GitHub Pull Requests."""
     name = 'github_pull_request'
-    query_param_name = 'number'
     model_class = m.GithubPullRequest
 
     filters = {

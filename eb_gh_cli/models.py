@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, Self, TypeVar
 
 import django
 import github
@@ -25,8 +25,6 @@ from .progress import progress_bar
 
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
 
-T = TypeVar('T', bound='GithubMixin')
-# https://stackoverflow.com/questions/61146406/
 O = TypeVar('O', bound=github.GithubObject.GithubObject)
 
 logger = logging.getLogger('gh_db')
@@ -101,10 +99,10 @@ class GithubMixin(models.Model, Generic[O]):
 
     @classmethod
     def from_autocomplete_string(
-            cls: T, autocomplete_string: str,
+            cls, autocomplete_string: str,
             allow_new: bool = False,
             update: bool = False
-        ) -> T:
+        ) -> Self:
         """
         Create or update an instance from a dictionary.
         If the instance does not exist and allow_new is True, create a new instance.
@@ -147,7 +145,7 @@ class GithubMixin(models.Model, Generic[O]):
         )
 
     @classmethod
-    def filter_autocomplete_string(cls: T, autocomplete_string: str) -> list[T]:
+    def filter_autocomplete_string(cls, autocomplete_string: str) -> models.Q:
         """
         Filter instances based on an autocomplete string.
         This method should be overridden in subclasses to handle specific filtering logic.
@@ -157,7 +155,7 @@ class GithubMixin(models.Model, Generic[O]):
         )
 
     @classmethod
-    def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
+    def create_from_dct(cls, dct: dict, *, gh: Github = None, update: bool = False) -> Self:
         """
         Create a new instance from the provided keyword arguments.
         This method should be overridden in subclasses to handle specific creation logic.
@@ -165,7 +163,7 @@ class GithubMixin(models.Model, Generic[O]):
         raise cls.DoesNotSupportDirectCreation(f"{cls.__name__}.create_from_dct must be implemented.")
 
     @classmethod
-    def create_from_obj(cls: T, obj, **kwargs) -> T:
+    def create_from_obj(cls, obj, **kwargs) -> Self:
         """
         Create an instance from a GitHub object.
         This method should be overridden in subclasses to handle specific object creation logic.
@@ -212,7 +210,7 @@ class GithubMixin(models.Model, Generic[O]):
         return self._gh_obj
 
     @with_github
-    def get_gh_obj(self, *, gh: Github = None):
+    def get_gh_obj(self, *, gh: Github = None) -> O:
         """
         Fetch the GitHub object associated with this instance.
         This method should be overridden in subclasses to fetch the appropriate GitHub object.
@@ -240,7 +238,7 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
 
     @classmethod
     @with_github
-    def create_from_dct(cls: T, dct: dict, *, gh: Github = None, update: bool = False) -> T:
+    def create_from_dct(cls, dct: dict, *, gh: Github = None, update: bool = False) -> Self:
         """
         Create a GithubUser instance from a dictionary.
         Fetches user information from GitHub using the provided token.
@@ -250,11 +248,11 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
         return cls.create_from_obj(user, update=update)
 
     @classmethod
-    def create_from_obj(cls, obj: github.NamedUser.NamedUser, **kwargs) -> 'GithubUser':
+    def create_from_obj(cls, obj: github.NamedUser.NamedUser, **kwargs) -> Self:
         return super().create_from_obj(obj, **kwargs)
 
     @classmethod
-    def from_username(cls: T, username: str) -> T:
+    def from_username(cls, username: str) -> Self:
         """
         Fetch a GitHub user by username.
         Returns a GithubUser instance.
@@ -278,9 +276,8 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
         return {'username': autocomplete_string}
 
     @classmethod
-    def filter_autocomplete_string(cls, autocomplete_string):
+    def filter_autocomplete_string(cls, autocomplete_string) -> models.Q:
         return models.Q(username__istartswith=autocomplete_string)
-
 
     @with_github
     def get_gh_obj(self, *, gh: Github) -> github.NamedUser.NamedUser:
@@ -308,7 +305,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
 
     @classmethod
     @with_github
-    def create_from_dct(cls: T, dct: dict, *, gh: Github, update: bool = False) -> T:
+    def create_from_dct(cls, dct: dict, *, gh: Github, update: bool = False) -> Self:
         """
         Create a GithubRepository instance from a dictionary.
         Fetches repository information from GitHub using the provided token.
@@ -318,7 +315,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
         repo = gh.get_repo(f"{owner}/{name}")
         return cls.create_from_obj(repo, update=update)
 
-    def get_autocomplete_string(self):
+    def get_autocomplete_string(self) -> str:
         """
         Return a string representation for autocomplete purposes.
         This should be overridden in subclasses to provide meaningful information.
@@ -348,7 +345,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
         return res
 
     @classmethod
-    def from_user(cls: T, user: GithubUser) -> list[T]:
+    def from_user(cls, user: GithubUser) -> list[Self]:
         """
         Fetch all repositories for a given GitHub user.
         Returns a list of GithubRepository instances.
@@ -387,7 +384,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
 #         return new
 
 #     @classmethod
-#     def from_repository(cls: T, repository: GithubRepository) -> list[T]:
+#     def from_repository(cls, repository: GithubRepository) -> list[Self]:
 #         """
 #         Fetch all branches for a given GitHub repository.
 #         Returns a list of GithubBranch instances.
@@ -498,7 +495,7 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         typ = 'PR' if self.is_pr else 'IS'
         return f"[{typ}] {self.repository.name} #{self.number:>6d}: {self.title}"
 
-    def get_autocomplete_string(self):
+    def get_autocomplete_string(self) -> str:
         """
         Return a string representation for autocomplete purposes.
         This should be overridden in subclasses to provide meaningful information.
@@ -524,7 +521,7 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         }
 
     @classmethod
-    def filter_autocomplete_string(cls, autocomplete_string: str):
+    def filter_autocomplete_string(cls, autocomplete_string: str) -> models.Q:
         """
         Filter issues based on an autocomplete string.
         The string should be in the format "repository#number: title".
@@ -542,11 +539,11 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
 
     @classmethod
     def from_repository(
-            cls: T, repository: GithubRepository,
+            cls, repository: GithubRepository,
             do_prs: bool = False,
             update: bool = False,
             since: datetime = None
-        ) -> list[T]:
+        ) -> list[Self]:
         """
         Fetch all issues for a given GitHub repository.
         Returns a list of GithubIssue instances.
@@ -721,7 +718,7 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
             'number': int(number)
         }
 
-    def get_autocomplete_string(self):
+    def get_autocomplete_string(self) -> str:
         """
         Return a string representation for autocomplete purposes.
         This should be overridden in subclasses to provide meaningful information.
@@ -731,7 +728,7 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         return f"{owner}/{repo.name}#{self.number}"
 
     @classmethod
-    def filter_autocomplete_string(cls, autocomplete_string: str):
+    def filter_autocomplete_string(cls, autocomplete_string: str) -> models.Q:
         """
         Filter issues based on an autocomplete string.
         The string should be in the format "repository#number: title".
