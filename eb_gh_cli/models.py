@@ -22,6 +22,7 @@ import github.PullRequest
 import github.PullRequestComment
 import github.PullRequestReview
 import github.Repository
+from django.core.files.base import ContentFile
 from django.db import models
 from github import Auth, Github
 
@@ -189,21 +190,26 @@ class GithubMixin(models.Model, Generic[O]):
             value = converter(value) if converter else value
             defaults[column] = value
 
-        id_key = cls.id_key.split('.')
-        gh_id = obj
-        for key in id_key:
-            gh_id = getattr(gh_id, key)
+        create_keys = {}
+        if cls.id_key:
+            id_key = cls.id_key.split('.')
+            gh_id = obj
+            for key in id_key:
+                gh_id = getattr(gh_id, key)
+            create_keys['gh_id'] = gh_id
 
-        url_key = cls.url_key.split('.')
-        url = obj
-        for key in url_key:
-            url = getattr(url, key)
+        if cls.url_key:
+            url_key = cls.url_key.split('.')
+            url = obj
+            for key in url_key:
+                url = getattr(url, key)
+            create_keys['url'] = url
 
         for key, val in foreign.items():
             defaults[key] = val
 
         res, created = func(
-            gh_id=gh_id, url=url,
+            **create_keys,
             defaults=defaults
         )
         if created:
@@ -547,6 +553,8 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
     def from_repository(
             cls, repository: GithubRepository,
             do_prs: bool = False,
+            do_comments: bool = False,
+            do_files: bool = False,
             update: bool = False,
             since: datetime = None
         ) -> list[Self]:
@@ -559,9 +567,7 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
             'sort': 'created',
             'direction': 'asc'
         }
-        if update:
-            pass
-        else:
+        if not update:
             if since is None:
                 last_created = cls.objects.filter(repository=repository).order_by('-created_at').first()
                 if last_created:
@@ -578,9 +584,16 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         res = []
         for issue in issues:
             issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
+            if do_comments:
+                issue_obj.get_comments()  # Fetch comments for the issue
             res.append(issue_obj)
             if do_prs and issue.pull_request:
-                GithubPullRequest.from_number(repository=repository, number=issue.number, update=update)
+                pr_obj = GithubPullRequest.from_number(repository=repository, number=issue.number, update=update)
+                if do_comments:
+                    pr_obj.get_comments()
+                    pr_obj.get_reviews()
+                if do_files:
+                    pr_obj.get_files()
         return res
 
     def update(self):
@@ -596,10 +609,10 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         Returns a list of GithubPRComment instances.
         """
         comments = self.gh_obj.get_comments()
-        comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        comments = progress_bar(
-            comments, description=f"Fetching comments for {self}"
-        )
+        # comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        # comments = progress_bar(
+        #     comments, description=f"Fetching comments for {self}"
+        # )
 
         res = []
         for comment in comments:
@@ -792,10 +805,10 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         Returns a list of GithubPRComment instances.
         """
         comments = self.gh_obj.get_comments()
-        comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        comments = progress_bar(
-            comments, description=f"Fetching comments for {self}"
-        )
+        # comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        # comments = progress_bar(
+        #     comments, description=f"Fetching comments for {self}"
+        # )
 
         res = []
         for comment in comments:
@@ -815,10 +828,10 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
     def get_reviews(self) -> list['GithubPRReview']:
         """Fetch the reviewes data for the pull request."""
         reviews = self.gh_obj.get_reviews()
-        reviews.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        reviews = progress_bar(
-            reviews, description=f"Fetching reviews for {self}"
-        )
+        # reviews.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        # reviews = progress_bar(
+        #     reviews, description=f"Fetching reviews for {self}"
+        # )
         res = []
         reviewers = []
         for review in reviews:
@@ -828,6 +841,19 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         self.reviewers.clear()  # Clear existing reviewers
         self.reviewers.add(*reviewers)
 
+        return res
+
+    def get_files(self) -> list['GithubPRFile']:
+        """Fetch the files changed in the pull request."""
+        files = self.gh_obj.get_files()
+        # files.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+        # files = progress_bar(
+        #     files, description=f"Fetching files for {self}"
+        # )
+        res = []
+        for file in files:
+            file_obj = GithubPRFile.create_from_obj(file, foreign={'pull_request': self})
+            res.append(file_obj)
         return res
 
     def get_participants(self) -> list[GithubUser]:
@@ -919,13 +945,38 @@ class GithubPRFile(GithubMixin[github.File.File]):
     changes = models.PositiveIntegerField(default=0)
 
     blob_url = models.URLField(max_length=512)
-    raw_url = models.URLField(max_length=512)
+    # raw_url = models.URLField(max_length=512)
     contents_url = models.URLField(max_length=512)
 
-    patch = models.TextField(blank=True, null=True, help_text='Patch for the file changes')
+    patch = models.FileField(blank=True, null=True, help_text='Patch for the file changes')
+    content = models.FileField(blank=True, null=True, help_text='Content of the file')
 
-    # content = models.FileField(storage=HashStorage(), blank=True, null=True, help_text='Content of the file')
-    # def fetch_content(self):
+    pull_request = models.ForeignKey(
+        GithubPullRequest, related_name='files', on_delete=models.CASCADE, null=True, blank=True
+    )
+
+    id_key = None
+    url_key = 'raw_url'
+
+    obj_col_map =[
+        ColObjMap('filename', 'filename'),
+        ColObjMap('prev_name', 'previous_filename', None),
+        ColObjMap('sha', 'sha'),
+        ColObjMap('status', 'status'),
+        ColObjMap('additions', 'additions', 0),
+        ColObjMap('deletions', 'deletions', 0),
+        ColObjMap('changes', 'changes', 0),
+
+        ColObjMap('blob_url', 'blob_url'),
+        # ColObjMap('raw_url', 'raw_url'),
+        ColObjMap('contents_url', 'contents_url'),
+
+        ColObjMap('patch', 'patch', '', lambda x: ContentFile(x.encode('utf-8'), name='patch.diff'))
+    ]
+
+    def fetch_content(self):
+        """Fetch the content of the file from GitHub."""
+        raise NotImplementedError()  # Need to check here to go through the RestAPI with the token
 
 
 class GithubGist(GithubMixin[github.Gist.Gist]):
@@ -937,19 +988,38 @@ class GithubGist(GithubMixin[github.Gist.Gist]):
         GithubUser, related_name='gists', on_delete=models.CASCADE, null=True, blank=True
     )
 
-def string_to_file_content(string: str) -> bytes:
-    """
-    Convert a string to bytes for file content.
-    This is used to store the content of a file in the database.
-    """
-    return string.encode('utf-8')
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    obj_col_map = [
+        ColObjMap('description', 'description', ''),
+        ColObjMap('public', 'public', False),
+        ColObjMap('owner', 'owner.login', converter=GithubUser.from_username),
+        ColObjMap('created_at', 'created_at'),
+        ColObjMap('updated_at', 'updated_at'),
+    ]
+
+    def fetch_files(self):
+        """
+        Fetch all files associated with this Gist.
+        Returns a list of GithubGistFile instances.
+        """
+        files = self.gh_obj.files
+        files = progress_bar(
+            files, description=f"Fetching files for Gist {self.id} ({self.description or 'No description'})"
+        )
+        res = []
+        for _, file_obj in files.items():
+            gist_file = GithubGistFile.create_from_obj(file_obj, foreign={'gist': self})
+            res.append(gist_file)
+        return res
 
 class GithubGistFile(GithubMixin[github.GistFile.GistFile]):
     """Model representing a file in a GitHub Gist."""
 
     filename = models.CharField(max_length=512)
     language = models.CharField(max_length=255, blank=True, null=True)
-    raw_url = models.URLField(max_length=512)
+    # raw_url = models.URLField(max_length=512)
     size = models.PositiveIntegerField(default=0)
     type = models.CharField(max_length=128, blank=True, null=True, help_text='Type of the file (e.g., text/plain)')
 
@@ -961,10 +1031,15 @@ class GithubGistFile(GithubMixin[github.GistFile.GistFile]):
         GithubGist, related_name='files', on_delete=models.CASCADE, null=True, blank=True
     )
 
+    id_key = None
+    url_key = 'raw_url'
+
     obj_col_map = [
         ColObjMap('filename', 'filename'),
         ColObjMap('language', 'language', ''),
-        ColObjMap('raw_url', 'raw_url'),
+        # ColObjMap('raw_url', 'raw_url'),
         ColObjMap('size', 'size', 0),
         ColObjMap('type', 'type', ''),
+
+        ColObjMap('content', 'content', '', lambda x: ContentFile(x.encode('utf-8'), name='file.txt'))
     ]

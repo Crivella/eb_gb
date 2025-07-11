@@ -104,6 +104,8 @@ disable = [
     "redefined-outer-name",
     "cyclic-import",
     "too-many-branches",
+
+
 ]
 
 
@@ -121,5 +123,7 @@ good-names = [
 
 [tool.pylint.design]
 max-args = 10
-max-locals = 20
+max-locals = 30
+max-module-lines = 3000
 max-attributes = 12
+max-positional-arguments=10

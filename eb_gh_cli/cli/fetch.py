@@ -1,4 +1,6 @@
 """Fetch commands for the eb_gh_cli CLI."""
+from datetime import datetime
+
 import django
 import django.core
 import django.core.exceptions
@@ -74,41 +76,62 @@ def comments_from_issue(gh_issue, verbose):
 
 @fetch.command()
 @opt.FILTER_USER_OPTION
+@opt.SINCE_OPTION
 @click.option('--update-open', is_flag=True, default=False, help='Update open issues and PRs.')
+@click.option('--comments/--no-comments', is_flag=True, default=True, help='Fetch comments for issues and PRs.')
+@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for issues and PRs.')
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
-def sync_repo(gh_repo: m.GithubRepository, update_open: bool):
+def sync_repo(
+    gh_repo: m.GithubRepository,
+    since: datetime = None,
+    update_open: bool = False, comments: bool = True, files: bool = True
+):
     """Synchronize a GitHub repository Issue and PRs with the database."""
     try:
-        issue_lst = m.GithubIssue.from_repository(gh_repo, do_prs=True)
+        issue_lst = m.GithubIssue.from_repository(
+            gh_repo,
+            since=since,
+            do_prs=True, do_comments=comments, do_files=files,
+        )
         click.echo(f'Issues fetched: {len(issue_lst)}')
     except django.core.exceptions.ValidationError as e:
         click.echo(f'Error creating issue: {e}')
 
-    if not update_open:
-        click.echo('Skipping update of open issues and PRs.')
-        return
+    if update_open:
+        # Avoid updating issues that were just fetched
+        numbers = [issue.number for issue in issue_lst]
 
-    # Avoid updating issues that were just fetched
-    numbers = [issue.number for issue in issue_lst]
+        q = gh_repo.issues
+        q = q.filter(is_closed=False)
+        q = q.exclude(number__in=numbers)
+        open_issues = q.all()
+        open_issues = progress_bar(
+            open_issues,
+            description=f'Updating {len(open_issues)} open issues',
+        )
+        for issue in open_issues:
+            issue.update()
 
-    q = gh_repo.issues
-    q = q.filter(is_closed=False)
-    q = q.exclude(number__in=numbers)
-    open_issues = q.all()
-    open_issues = progress_bar(
-        open_issues,
-        description=f'Updating {len(open_issues)} open issues',
-    )
-    for issue in open_issues:
-        issue.update()
+        q = gh_repo.pull_requests
+        q = q.filter(is_merged=False, is_closed=False)
+        q = q.exclude(number__in=numbers)
+        open_prs = q.all()
+        open_prs = progress_bar(
+            open_prs,
+            description=f'Updating {len(open_prs)} open pull requests',
+        )
+        for pr in open_prs:
+            pr.update()
 
-    q = gh_repo.pull_requests
-    q = q.filter(is_merged=False, is_closed=False)
-    q = q.exclude(number__in=numbers)
-    open_prs = q.all()
-    open_prs = progress_bar(
-        open_prs,
-        description=f'Updating {len(open_prs)} open pull requests',
-    )
-    for pr in open_prs:
-        pr.update()
+# @fetch.command()
+# @click.argument('content', type=str)
+# def create_test_file(content):
+#     """Create a test file for the CLI."""
+#     import django.core.files.base
+#     filename = 'test_file.txt'
+#     file = django.core.files.base.ContentFile(content.encode('utf-8'), name=filename)
+#     m.GithubGistFile.objects.create(
+#         filename=filename,
+#         content=file,
+#         raw_url='https://example.com/test_file.txt',
+#     )
