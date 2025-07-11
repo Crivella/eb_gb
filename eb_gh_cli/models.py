@@ -48,7 +48,7 @@ class ColObjMap:
     A class to represent a mapping between model fields and GitHub object attributes.
     This is used to define how to extract data from GitHub objects when creating or updating Django models.
     """
-    def __init__(self, column: str, param: str, default: Any = NODEFAULT, converter: Callable = None):
+    def __init__(self, column: str, param: str, *, default: Any = NODEFAULT, converter: Callable = None):
         self.column = column
         self.param = param
         self.default = default
@@ -243,7 +243,7 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
 
     obj_col_map = [
         ColObjMap('username', 'login'),
-        ColObjMap('email', 'email', None),
+        ColObjMap('email', 'email', default=None),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
     ]
@@ -311,7 +311,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
     obj_col_map = [
         ColObjMap('name', 'name'),
         ColObjMap('owner', 'owner.login', converter=GithubUser.from_username),
-        ColObjMap('description', 'description', ''),
+        ColObjMap('description', 'description', default=None),
     ]
 
     def __str__(self):
@@ -420,7 +420,7 @@ class GithubLabel(GithubMixin[github.Label.Label]):
 
     obj_col_map = [
         ColObjMap('name', 'name'),
-        ColObjMap('description', 'description', ''),
+        ColObjMap('description', 'description', default=None),
     ]
 
     def __str__(self):
@@ -446,13 +446,13 @@ class GithubMilestone(GithubMixin[github.Milestone.Milestone]):
 
     obj_col_map = [
         ColObjMap('title', 'title'),
-        ColObjMap('description', 'description', ''),
+        ColObjMap('description', 'description', default=None),
         ColObjMap('state', 'state'),
         ColObjMap('created_by', 'creator.login', converter=GithubUser.from_username),
-        ColObjMap('due_on', 'due_on', None),
+        ColObjMap('due_on', 'due_on', default=None),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
-        ColObjMap('closed_at', 'closed_at', None)
+        ColObjMap('closed_at', 'closed_at', default=None)
     ]
 
     def __str__(self):
@@ -492,15 +492,15 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
 
     obj_col_map = [
         ColObjMap('title', 'title'),
-        ColObjMap('body', 'body', ''),
+        ColObjMap('body', 'body', default=None),
         ColObjMap('number', 'number'),
         ColObjMap('is_closed', 'state', converter=lambda x: x == 'closed'),
         ColObjMap('is_pr', 'pull_request', converter=lambda x: x is not None),
         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
-        ColObjMap('closed_by', 'closed_by.login', None, converter=GithubUser.from_username),
+        ColObjMap('closed_by', 'closed_by.login', default=None, converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
-        ColObjMap('closed_at', 'closed_at', None)
+        ColObjMap('closed_at', 'closed_at', default=None)
     ]
 
     def __str__(self):
@@ -590,7 +590,7 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
             if do_prs and issue.pull_request:
                 pr_obj = GithubPullRequest.from_number(repository=repository, number=issue.number, update=update)
                 if do_comments:
-                    pr_obj.get_comments()
+                    # pr_obj.get_comments()
                     pr_obj.get_reviews()
                 if do_files:
                     pr_obj.get_files()
@@ -598,15 +598,15 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
 
     def update(self):
         """
-        Update the pull request object from GitHub.
+        Update the issue object from GitHub.
         This method fetches the latest data from GitHub and updates the instance.
         """
         self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
 
     def get_comments(self) -> list['GithubIssueComment']:
         """
-        Fetch all comments for this pull request.
-        Returns a list of GithubPRComment instances.
+        Fetch all comments for this issue.
+        Returns a list of GithubIssueComment instances.
         """
         comments = self.gh_obj.get_comments()
         # comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
@@ -657,7 +657,7 @@ class GithubIssueComment(GithubMixin[github.IssueComment.IssueComment]):
         ColObjMap('body', 'body'),
         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
-        ColObjMap('updated_at', 'updated_at', NODEFAULT)
+        ColObjMap('updated_at', 'updated_at')
     ]
 
 class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
@@ -698,20 +698,20 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
 
     obj_col_map= [
         ColObjMap('title', 'title'),
-        ColObjMap('body', 'body', ''),
+        ColObjMap('body', 'body', default=None),
         ColObjMap('number', 'number'),
 
-        ColObjMap('is_draft', 'draft', False),  # Default false needed to create PR from Issue
-        ColObjMap('is_merged', 'merged', False),
+        ColObjMap('is_draft', 'draft', default=False),  # Default false needed to create PR from Issue
+        ColObjMap('is_merged', 'merged', default=False),
         ColObjMap('is_closed', 'state', converter=lambda x: x == 'closed'),
 
         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
-        ColObjMap('merged_by', 'merged_by.login', None, converter=GithubUser.from_username),
+        ColObjMap('merged_by', 'merged_by.login', default=None, converter=GithubUser.from_username),
 
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
-        ColObjMap('merged_at', 'merged_at', None),
-        ColObjMap('closed_at', 'closed_at', None)
+        ColObjMap('merged_at', 'merged_at', default=None),
+        ColObjMap('closed_at', 'closed_at', default=None)
     ]
 
     def __str__(self):
@@ -799,23 +799,23 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         """
         self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
 
-    def get_comments(self) -> list['GithubPRComment']:
-        """
-        Fetch all comments for this pull request.
-        Returns a list of GithubPRComment instances.
-        """
-        comments = self.gh_obj.get_comments()
-        # comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        # comments = progress_bar(
-        #     comments, description=f"Fetching comments for {self}"
-        # )
+    # def get_comments(self) -> list['GithubPRComment']:
+    #     """
+    #     Fetch all comments for this pull request.
+    #     Returns a list of GithubPRComment instances.
+    #     """
+    #     comments = self.gh_obj.get_comments()
+    #     # comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
+    #     # comments = progress_bar(
+    #     #     comments, description=f"Fetching comments for {self}"
+    #     # )
 
-        res = []
-        for comment in comments:
-            comment_obj = GithubPRComment.create_from_obj(comment, foreign={'pull_request': self})
-            res.append(comment_obj)
+    #     res = []
+    #     for comment in comments:
+    #         comment_obj = GithubPRComment.create_from_obj(comment, foreign={'pull_request': self})
+    #         res.append(comment_obj)
 
-        return res
+    #     return res
 
     def get_assignes(self) -> list[GithubUser]:
         """"Fetch the assignees data for the issue."""
@@ -868,26 +868,26 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         """
         return self.repository.gh_obj.get_pull(self.number)
 
-class GithubPRComment(GithubMixin[github.PullRequestComment.PullRequestComment]):
-    """Model representing a comment on a GitHub Pull Request."""
-    body = models.TextField()
-    pull_request = models.ForeignKey(GithubPullRequest, related_name='comments', on_delete=models.CASCADE)
+# class GithubPRComment(GithubMixin[github.PullRequestComment.PullRequestComment]):
+#     """Model representing a comment on a GitHub Pull Request."""
+#     body = models.TextField()
+#     pull_request = models.ForeignKey(GithubPullRequest, related_name='comments', on_delete=models.CASCADE)
 
-    created_by = models.ForeignKey(
-        GithubUser, related_name='created_pull_request_comments', on_delete=models.CASCADE, null=True, blank=True
-    )
+#     created_by = models.ForeignKey(
+#         GithubUser, related_name='created_pull_request_comments', on_delete=models.CASCADE, null=True, blank=True
+#     )
 
-    created_at = models.DateTimeField()
-    # updated_at = models.DateTimeField()
+#     created_at = models.DateTimeField()
+#     # updated_at = models.DateTimeField()
 
-    obj_col_map = [
-        ColObjMap('body', 'body'),
-        ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
-        ColObjMap('created_at', 'created_at'),
-    ]
+#     obj_col_map = [
+#         ColObjMap('body', 'body'),
+#         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
+#         ColObjMap('created_at', 'created_at'),
+#     ]
 
-    def __str__(self):
-        return f"{self.pull_request} : {self.body[:30]}"
+#     def __str__(self):
+#         return f"{self.pull_request} : {self.body[:30]}"
 
 class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
     """Model representing a review on a GitHub Pull Request."""
@@ -960,18 +960,21 @@ class GithubPRFile(GithubMixin[github.File.File]):
 
     obj_col_map =[
         ColObjMap('filename', 'filename'),
-        ColObjMap('prev_name', 'previous_filename', None),
+        ColObjMap('prev_name', 'previous_filename', default=None),
         ColObjMap('sha', 'sha'),
         ColObjMap('status', 'status'),
-        ColObjMap('additions', 'additions', 0),
-        ColObjMap('deletions', 'deletions', 0),
-        ColObjMap('changes', 'changes', 0),
+        ColObjMap('additions', 'additions', default=0),
+        ColObjMap('deletions', 'deletions', default=0),
+        ColObjMap('changes', 'changes', default=0),
 
         ColObjMap('blob_url', 'blob_url'),
         # ColObjMap('raw_url', 'raw_url'),
         ColObjMap('contents_url', 'contents_url'),
 
-        ColObjMap('patch', 'patch', lambda x: ContentFile(x.encode('utf-8'), name='file.txt') if x else None)
+        ColObjMap(
+            'patch', 'patch',
+            converter=lambda x: ContentFile(x.encode('utf-8'), name='file.txt') if x else None
+        )
     ]
 
     def fetch_content(self):
@@ -992,8 +995,8 @@ class GithubGist(GithubMixin[github.Gist.Gist]):
     updated_at = models.DateTimeField()
 
     obj_col_map = [
-        ColObjMap('description', 'description', ''),
-        ColObjMap('public', 'public', False),
+        ColObjMap('description', 'description', default=None),
+        ColObjMap('public', 'public', default=False),
         ColObjMap('owner', 'owner.login', converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
@@ -1036,10 +1039,13 @@ class GithubGistFile(GithubMixin[github.GistFile.GistFile]):
 
     obj_col_map = [
         ColObjMap('filename', 'filename'),
-        ColObjMap('language', 'language', ''),
+        ColObjMap('language', 'language', default=None),
         # ColObjMap('raw_url', 'raw_url'),
-        ColObjMap('size', 'size', 0),
-        ColObjMap('type', 'type', ''),
+        ColObjMap('size', 'size', default=0),
+        ColObjMap('type', 'type', default=''),
 
-        ColObjMap('content', 'content', lambda x: ContentFile(x.encode('utf-8'), name='file.txt') if x else None)
+        ColObjMap(
+            'content', 'content',
+            converter=lambda x: ContentFile(x.encode('utf-8'), name='file.txt') if x else None
+        )
     ]
