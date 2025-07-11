@@ -1,4 +1,5 @@
 """GitHub-related models for Django application."""
+# https://github.com/typeddjango/django-stubs/issues/299  for migrations with Generic
 import logging
 import os
 from datetime import datetime, timedelta
@@ -8,6 +9,9 @@ from typing import Any, Callable, Generic, Self, TypeVar
 import django
 import github
 # import github.Branch
+import github.File
+import github.Gist
+import github.GistFile
 import github.GithubObject
 import github.Issue
 import github.IssueComment
@@ -82,6 +86,7 @@ class GithubMixin(models.Model, Generic[O]):
     internal_updated_at = models.DateTimeField(auto_now=True)
 
     id_key: str = 'id'
+    url_key: str = 'html_url'
     obj_col_map: list[ColObjMap] = []
 
     class Meta:
@@ -189,11 +194,16 @@ class GithubMixin(models.Model, Generic[O]):
         for key in id_key:
             gh_id = getattr(gh_id, key)
 
+        url_key = cls.url_key.split('.')
+        url = obj
+        for key in url_key:
+            url = getattr(url, key)
+
         for key, val in foreign.items():
             defaults[key] = val
 
         res, created = func(
-            gh_id=gh_id,
+            gh_id=gh_id, url=url,
             defaults=defaults
         )
         if created:
@@ -228,7 +238,6 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
     obj_col_map = [
         ColObjMap('username', 'login'),
         ColObjMap('email', 'email', None),
-        ColObjMap('url', 'html_url'),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
     ]
@@ -297,7 +306,6 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
         ColObjMap('name', 'name'),
         ColObjMap('owner', 'owner.login', converter=GithubUser.from_username),
         ColObjMap('description', 'description', ''),
-        ColObjMap('url', 'html_url'),
     ]
 
     def __str__(self):
@@ -369,7 +377,6 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
 #     id_key = ''
 #     obj_col_map = [
 #         ColObjMap('name', 'name'),
-#         ColObjMap('url', 'commit.html_url'),
 #     ]
 
 #     @classmethod
@@ -403,10 +410,11 @@ class GithubLabel(GithubMixin[github.Label.Label]):
 
     repository = models.ForeignKey(GithubRepository, related_name='labels', on_delete=models.CASCADE)
 
+    url_key = 'url'
+
     obj_col_map = [
         ColObjMap('name', 'name'),
         ColObjMap('description', 'description', ''),
-        ColObjMap('url', 'url'),
     ]
 
     def __str__(self):
@@ -431,7 +439,6 @@ class GithubMilestone(GithubMixin[github.Milestone.Milestone]):
     closed_at = models.DateTimeField(null=True, blank=True)
 
     obj_col_map = [
-        ColObjMap('url', 'html_url'),
         ColObjMap('title', 'title'),
         ColObjMap('description', 'description', ''),
         ColObjMap('state', 'state'),
@@ -478,7 +485,6 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
     closed_at = models.DateTimeField(null=True, blank=True)
 
     obj_col_map = [
-        ColObjMap('url', 'html_url'),
         ColObjMap('title', 'title'),
         ColObjMap('body', 'body', ''),
         ColObjMap('number', 'number'),
@@ -636,7 +642,6 @@ class GithubIssueComment(GithubMixin[github.IssueComment.IssueComment]):
 
     obj_col_map = [
         ColObjMap('body', 'body'),
-        ColObjMap('url', 'html_url'),
         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at', NODEFAULT)
@@ -679,7 +684,6 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
     closed_at = models.DateTimeField(null=True, blank=True)
 
     obj_col_map= [
-        ColObjMap('url', 'html_url'),
         ColObjMap('title', 'title'),
         ColObjMap('body', 'body', ''),
         ColObjMap('number', 'number'),
@@ -852,22 +856,12 @@ class GithubPRComment(GithubMixin[github.PullRequestComment.PullRequestComment])
 
     obj_col_map = [
         ColObjMap('body', 'body'),
-        ColObjMap('url', 'html_url'),
         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
     ]
 
     def __str__(self):
         return f"{self.pull_request} : {self.body[:30]}"
-
-    # @classmethod
-    # def from_pull_request(cls, pull_request: GithubPullRequest) -> list['GithubPRComment']:
-    #     """
-    #     Fetch all comments for a given GitHub pull request.
-    #     Returns a list of GithubPRComment instances.
-    #     """
-    #     comments = pull_request.gh_obj.get_issue_comments()
-    #     return [cls.create_from_obj(comment, foreign={'pull_request': pull_request}) for comment in comments]
 
 class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
     """Model representing a review on a GitHub Pull Request."""
@@ -889,7 +883,6 @@ class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
 
     obj_col_map = [
         ColObjMap('body', 'body'),
-        ColObjMap('url', 'html_url'),
         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
         ColObjMap('state', 'state'),
         ColObjMap('submitted_at', 'submitted_at'),
@@ -898,11 +891,80 @@ class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
     def __str__(self):
         return f"{self.pull_request} : {self.body[:30]} ({self.state})"
 
-    # @classmethod
-    # def from_pull_request(cls, pull_request: GithubPullRequest) -> list['GithubPRReview']:
-    #     """
-    #     Fetch all reviews for a given GitHub pull request.
-    #     Returns a list of GithubPRReview instances.
-    #     """
-    #     reviews = pull_request.gh_obj.get_reviews()
-    #     return [cls.create_from_obj(review, foreign={'pull_request': pull_request}) for review in reviews]
+class GithubPRFile(GithubMixin[github.File.File]):
+    """Model representing a file in a GitHub repository."""
+    # See https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28#list-pull-requests-files
+    filename = models.CharField(max_length=512)
+    prev_name = models.CharField(
+        max_length=512, blank=True, null=True,
+        help_text='Previous name of the file if renamed'
+    )
+
+    sha = models.CharField(max_length=40)
+
+    status = models.CharField(
+        max_length=20, choices=[
+            ('added', 'Added'),
+            ('removed', 'Removed'),
+            ('modified', 'Modified'),
+            ('renamed', 'Renamed'),
+            ('copied', 'Copied'),
+            ('changed', 'Changed'),
+            ('unchanged', 'Unchanged')
+        ]
+    )
+
+    additions = models.PositiveIntegerField(default=0)
+    deletions = models.PositiveIntegerField(default=0)
+    changes = models.PositiveIntegerField(default=0)
+
+    blob_url = models.URLField(max_length=512)
+    raw_url = models.URLField(max_length=512)
+    contents_url = models.URLField(max_length=512)
+
+    patch = models.TextField(blank=True, null=True, help_text='Patch for the file changes')
+
+    # content = models.FileField(storage=HashStorage(), blank=True, null=True, help_text='Content of the file')
+    # def fetch_content(self):
+
+
+class GithubGist(GithubMixin[github.Gist.Gist]):
+    """Model representing a GitHub Gist."""
+    description = models.TextField(blank=True, null=True)
+
+    public = models.BooleanField(default=False)
+    owner = models.ForeignKey(
+        GithubUser, related_name='gists', on_delete=models.CASCADE, null=True, blank=True
+    )
+
+def string_to_file_content(string: str) -> bytes:
+    """
+    Convert a string to bytes for file content.
+    This is used to store the content of a file in the database.
+    """
+    return string.encode('utf-8')
+
+class GithubGistFile(GithubMixin[github.GistFile.GistFile]):
+    """Model representing a file in a GitHub Gist."""
+
+    filename = models.CharField(max_length=512)
+    language = models.CharField(max_length=255, blank=True, null=True)
+    raw_url = models.URLField(max_length=512)
+    size = models.PositiveIntegerField(default=0)
+    type = models.CharField(max_length=128, blank=True, null=True, help_text='Type of the file (e.g., text/plain)')
+
+    content = models.FileField(
+        blank=True, null=True, help_text='Content of the file'
+    )
+
+    gist = models.ForeignKey(
+        GithubGist, related_name='files', on_delete=models.CASCADE, null=True, blank=True
+    )
+
+    obj_col_map = [
+        ColObjMap('filename', 'filename'),
+        ColObjMap('language', 'language', ''),
+        ColObjMap('raw_url', 'raw_url'),
+        ColObjMap('size', 'size', 0),
+        ColObjMap('type', 'type', ''),
+    ]
