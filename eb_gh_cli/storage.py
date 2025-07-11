@@ -138,4 +138,9 @@ class DOSStorage(Storage):
 
     def _save(self, name: str, content: File) -> str:  # pylint: disable=unused-argument
         """Save the file with a hashed name."""
-        return self.container.add_streamed_object(content)
+        res = None
+        try:
+            res = self.container.add_streamed_object(content)
+        finally:
+            content.close()
+        return res
