@@ -133,5 +133,5 @@ def sync_repo(
 #     m.GithubGistFile.objects.create(
 #         filename=filename,
 #         content=file,
-#         raw_url='https://example.com/test_file.txt',
+#         url='https://example.com/test_file.txt',
 #     )

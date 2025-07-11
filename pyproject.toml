@@ -25,7 +25,7 @@ classifiers = [
     "Intended Audience :: End Users/Desktop",
 ]
 keywords = ["django", "easybuild", "github"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "PyGithub",
     "Django~=5.2",
@@ -66,6 +66,9 @@ pre-commit = [
     "pylint-pytest",
     "pylint-django",
 ]
+dosstorage = [
+    "disk-objectstore",
+]
 release = [
     "flit"
 ]
@@ -104,8 +107,6 @@ disable = [
     "redefined-outer-name",
     "cyclic-import",
     "too-many-branches",
-
-
 ]
 
 
