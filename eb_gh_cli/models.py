@@ -938,7 +938,7 @@ class GithubPRFile(GithubMixin[github.File.File]):
         help_text='Previous name of the file if renamed'
     )
 
-    sha = models.CharField(max_length=40)
+    sha = models.CharField(max_length=40, null=True, blank=True, help_text='SHA of the file from github')
 
     status = models.CharField(
         max_length=20, choices=[
