@@ -584,11 +584,13 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         res = []
         for issue in issues:
             issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
+            issue_obj.get_assignes()  # Fetch assignees for the issue
             if do_comments:
                 issue_obj.get_comments()  # Fetch comments for the issue
             res.append(issue_obj)
             if do_prs and issue.pull_request:
                 pr_obj = GithubPullRequest.from_number(repository=repository, number=issue.number, update=update)
+                pr_obj.get_assignes()  # Fetch assignees for the PR
                 if do_comments:
                     # pr_obj.get_comments()
                     pr_obj.get_reviews()
@@ -601,7 +603,12 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         Update the issue object from GitHub.
         This method fetches the latest data from GitHub and updates the instance.
         """
-        self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
+        if self.gh_obj.updated_at > self.updated_at:
+            logger.info(f"Updating issue {self.number} from GitHub.")
+            # Fetch the latest issue object from GitHub
+            self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
+            self.get_assignes()  # Fetch assignees after updating the issue
+            self.get_comments()  # Fetch comments after updating the issue
 
     def get_comments(self) -> list['GithubIssueComment']:
         """
@@ -797,7 +804,12 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         Update the pull request object from GitHub.
         This method fetches the latest data from GitHub and updates the instance.
         """
-        self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
+        if self.gh_obj.updated_at > self.updated_at:
+            logger.info(f"Updating pull request {self.number} from GitHub.")
+            self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
+            self.get_assignes()
+            self.get_reviews()  # Fetch reviews after updating the PR
+            self.get_files()  # Fetch files after updating the PR
 
     # def get_comments(self) -> list['GithubPRComment']:
     #     """
