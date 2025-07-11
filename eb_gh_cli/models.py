@@ -971,7 +971,7 @@ class GithubPRFile(GithubMixin[github.File.File]):
         # ColObjMap('raw_url', 'raw_url'),
         ColObjMap('contents_url', 'contents_url'),
 
-        ColObjMap('patch', 'patch', '', lambda x: ContentFile(x.encode('utf-8'), name='patch.diff'))
+        ColObjMap('patch', 'patch', lambda x: ContentFile(x.encode('utf-8'), name='file.txt') if x else None)
     ]
 
     def fetch_content(self):
@@ -1041,5 +1041,5 @@ class GithubGistFile(GithubMixin[github.GistFile.GistFile]):
         ColObjMap('size', 'size', 0),
         ColObjMap('type', 'type', ''),
 
-        ColObjMap('content', 'content', '', lambda x: ContentFile(x.encode('utf-8'), name='file.txt'))
+        ColObjMap('content', 'content', lambda x: ContentFile(x.encode('utf-8'), name='file.txt') if x else None)
     ]
