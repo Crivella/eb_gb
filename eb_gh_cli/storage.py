@@ -117,7 +117,8 @@ class DOSStorage(Storage):
         """Get the size of the file."""
         if not self.exists(name):
             raise FileNotFoundError(f"File '{name}' does not exist.")
-        return self.container.get_object_meta(name).size
+        with self.container as container:
+            return container.get_object_meta(name).size
 
     def delete(self, name: str):
         """Delete the file from the storage."""
@@ -133,14 +134,16 @@ class DOSStorage(Storage):
 
     def _open(self, name: str, mode='rb') -> File:  # pylint: disable=unused-argument
         """Open the file with gzip if compression is enabled."""
-        content = self.container.get_object_content(name)
+        with self.container as container:
+            content = container.get_objects_content(name)
         return ContentFile(content, name=name)
 
     def _save(self, name: str, content: File) -> str:  # pylint: disable=unused-argument
         """Save the file with a hashed name."""
         res = None
         try:
-            res = self.container.add_streamed_object(content)
+            with self.container as container:
+                res = container.add_streamed_object(content)
         finally:
             content.close()
         return res
