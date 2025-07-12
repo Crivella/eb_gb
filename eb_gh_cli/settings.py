@@ -72,19 +72,19 @@ MIDDLEWARE = []
 TEMPLATES = []
 
 STORAGES = {
-    # 'default': {
-    #     'BACKEND': 'eb_gh_cli.storage.HashStorage',
-    #     'OPTIONS': {
-    #         'location': os.environ.get('STORAGE_LOCATION', os.path.join(GH_DB_ROOT, 'files')),
-    #         'compression': 'gzip',
-    #     }
-    # },
     'default': {
-        'BACKEND': 'eb_gh_cli.storage.DOSStorage',
+        'BACKEND': 'eb_gh_cli.storage.HashStorage',
         'OPTIONS': {
             'location': os.environ.get('STORAGE_LOCATION', os.path.join(GH_DB_ROOT, 'files')),
+            'compression': 'gzip',
         }
     },
+    # 'default': {
+    #     'BACKEND': 'eb_gh_cli.storage.DOSStorage',
+    #     'OPTIONS': {
+    #         'location': os.environ.get('STORAGE_LOCATION', os.path.join(GH_DB_ROOT, 'files')),
+    #     }
+    # },
 }
 
 # Database
