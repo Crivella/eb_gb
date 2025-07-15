@@ -590,8 +590,14 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
             description=f"Fetching issues from {repository} since #{since_number}",
         )
         for issue_number in iterator:
-            # logger.warning(f"Processing issue #{issue_number} from {repository}")
             issue = repo.get_issue(number=issue_number)
+            if repo.name != issue.repository.name or issue.number != issue_number:
+                logger.info(
+                    f'Issue mismatch: requested = {repo.owner.login}/{repo.name}#{issue_number}, '
+                    f'got = {issue.repository.owner.login}/{issue.repository.name}#{issue.number}\n'
+                    'Probably due to a redirect/transfered issue... Skipping.'
+                )
+                continue
             try:
                 issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
                 issue_obj.get_assignes()
