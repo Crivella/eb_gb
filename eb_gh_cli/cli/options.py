@@ -47,3 +47,12 @@ SINCE_OPTION = click.option(
     # expose_value=False,
     # callback=register_hidden_param
 )
+
+SINCE_NUMBER_OPTION = click.option(
+    '--since-number',
+    type=click.IntRange(min=1),
+    default=None,
+    help='Filter results since this number (inclusive)',
+    # expose_value=False,
+    # callback=register_hidden_param
+)

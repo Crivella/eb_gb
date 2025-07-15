@@ -1,6 +1,4 @@
 """Fetch commands for the eb_gh_cli CLI."""
-from datetime import datetime
-
 import django
 import django.core
 import django.core.exceptions
@@ -76,21 +74,24 @@ def comments_from_issue(gh_issue, verbose):
 
 @fetch.command()
 @opt.FILTER_USER_OPTION
-@opt.SINCE_OPTION
+# @opt.SINCE_OPTION
+@opt.SINCE_NUMBER_OPTION
 @click.option('--update-open', is_flag=True, default=False, help='Update open issues and PRs.')
 @click.option('--comments/--no-comments', is_flag=True, default=True, help='Fetch comments for issues and PRs.')
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for issues and PRs.')
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 def sync_repo(
     gh_repo: m.GithubRepository,
-    since: datetime = None,
+    # since: datetime = None,
+    since_number: int = None,
     update_open: bool = False, comments: bool = True, files: bool = True
 ):
     """Synchronize a GitHub repository Issue and PRs with the database."""
     try:
         issue_lst = m.GithubIssue.from_repository(
             gh_repo,
-            since=since,
+            # since=since,
+            since_number=since_number,
             do_prs=True, do_comments=comments, do_files=files,
         )
         click.echo(f'Issues fetched: {len(issue_lst)}')
@@ -122,16 +123,3 @@ def sync_repo(
         )
         for pr in open_prs:
             pr.update()
-
-# @fetch.command()
-# @click.argument('content', type=str)
-# def create_test_file(content):
-#     """Create a test file for the CLI."""
-#     import django.core.files.base
-#     filename = 'test_file.txt'
-#     file = django.core.files.base.ContentFile(content.encode('utf-8'), name=filename)
-#     m.GithubGistFile.objects.create(
-#         filename=filename,
-#         content=file,
-#         url='https://example.com/test_file.txt',
-#     )

@@ -1,12 +1,14 @@
 """GitHub-related models for Django application."""
 # https://github.com/typeddjango/django-stubs/issues/299  for migrations with Generic
+import atexit
 import logging
 import os
-from datetime import datetime, timedelta
-from functools import wraps
+import subprocess
+import sys
 from typing import Any, Callable, Generic, Self, TypeVar
 
 import django
+import django.db.utils
 import github
 # import github.Branch
 import github.File
@@ -19,7 +21,6 @@ import github.Label
 import github.Milestone
 import github.NamedUser
 import github.PullRequest
-import github.PullRequestComment
 import github.PullRequestReview
 import github.Repository
 from django.core.files.base import ContentFile
@@ -28,11 +29,21 @@ from github import Auth, Github
 
 from .progress import progress_bar
 
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
-
 O = TypeVar('O', bound=github.GithubObject.GithubObject)
 
 logger = logging.getLogger('gh_db')
+
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
+try:
+    TOK = Auth.Token(GITHUB_TOKEN)
+except AssertionError:
+    logger.warning(
+        'GITHUB_TOKEN is not set or invalid. Running as an unauthenticated user (Beware of rate-limits).'
+    )
+    TOK = None
+
+GH_MAIN = Github(auth=TOK)
+atexit.register(GH_MAIN.close)
 
 try:
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'eb_gh_cli.settings')
@@ -59,23 +70,6 @@ class ColObjMap:
         yield self.param
         yield self.default
         yield self.converter
-
-
-def with_github(func):
-    """
-    Decorator to provide a GitHub instance to the decorated function.
-    The function must accept a `tok` parameter of type `Auth.Token`.
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        if not GITHUB_TOKEN:
-            raise ValueError(
-                'GITHUB_TOKEN environment variable is not set. Please set it to use GitHub-related features.'
-            )
-        tok = Auth.Token(GITHUB_TOKEN)
-        with Github(auth=tok) as gh:
-            return func(*args, gh=gh, **kwargs)
-    return wrapper
 
 
 class GithubMixin(models.Model, Generic[O]):
@@ -161,7 +155,7 @@ class GithubMixin(models.Model, Generic[O]):
         )
 
     @classmethod
-    def create_from_dct(cls, dct: dict, *, gh: Github = None, update: bool = False) -> Self:
+    def create_from_dct(cls, dct: dict, *, update: bool = False) -> Self:
         """
         Create a new instance from the provided keyword arguments.
         This method should be overridden in subclasses to handle specific creation logic.
@@ -208,10 +202,21 @@ class GithubMixin(models.Model, Generic[O]):
         for key, val in foreign.items():
             defaults[key] = val
 
-        res, created = func(
-            **create_keys,
-            defaults=defaults
-        )
+        try:
+            res, created = func(
+                **create_keys,
+                defaults=defaults
+            )
+        except OSError as e:
+            logger.error(f"Error creating {cls.__name__} instance: {e}", exc_info=True)
+            logger.error(f"`lsof -p {os.getpid()}` to check for open files.")
+            data = subprocess.check_output(['lsof', '-p', str(os.getpid())])
+            logger.error(f"Open files: \n{data.decode('utf-8')}")
+            sys.exit(1)
+        except django.db.utils.IntegrityError as e:
+            logger.error(f"Integrity error while creating {cls.__name__} instance: {e}", exc_info=True)
+            logger.error(f'Create keys: {create_keys}, defaults: {defaults}')
+            sys.exit(1)
         if created:
             logger.debug(f"Created new {cls.__name__} instance: {res}")
         elif update:
@@ -225,8 +230,7 @@ class GithubMixin(models.Model, Generic[O]):
             self._gh_obj = self.get_gh_obj()
         return self._gh_obj
 
-    @with_github
-    def get_gh_obj(self, *, gh: Github = None) -> O:
+    def get_gh_obj(self) -> O:
         """
         Fetch the GitHub object associated with this instance.
         This method should be overridden in subclasses to fetch the appropriate GitHub object.
@@ -252,19 +256,18 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
         return self.username
 
     @classmethod
-    @with_github
-    def create_from_dct(cls, dct: dict, *, gh: Github = None, update: bool = False) -> Self:
+    def create_from_dct(cls, dct: dict, *, update: bool = False) -> Self:
         """
         Create a GithubUser instance from a dictionary.
         Fetches user information from GitHub using the provided token.
         """
         username = dct.get('username')
-        user = gh.get_user(username)
+        if not update:
+            user = cls.objects.filter(username=username).first()
+            if user is not None:
+                return user
+        user = GH_MAIN.get_user(username)
         return cls.create_from_obj(user, update=update)
-
-    @classmethod
-    def create_from_obj(cls, obj: github.NamedUser.NamedUser, **kwargs) -> Self:
-        return super().create_from_obj(obj, **kwargs)
 
     @classmethod
     def from_username(cls, username: str) -> Self:
@@ -294,13 +297,12 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
     def filter_autocomplete_string(cls, autocomplete_string) -> models.Q:
         return models.Q(username__istartswith=autocomplete_string)
 
-    @with_github
-    def get_gh_obj(self, *, gh: Github) -> github.NamedUser.NamedUser:
+    def get_gh_obj(self) -> github.NamedUser.NamedUser:
         """
         Fetch the GitHub user object using the provided GitHub instance.
         This method is used to ensure that the GitHub user object is always up-to-date.
         """
-        return gh.get_user_by_id(self.gh_id)
+        return GH_MAIN.get_user_by_id(self.gh_id)
 
 class GithubRepository(GithubMixin[github.Repository.Repository]):
     """Model representing a GitHub repository."""
@@ -318,15 +320,18 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
         return f"{self.owner.username}/{self.name}"
 
     @classmethod
-    @with_github
-    def create_from_dct(cls, dct: dict, *, gh: Github, update: bool = False) -> Self:
+    def create_from_dct(cls, dct: dict, *, update: bool = False) -> Self:
         """
         Create a GithubRepository instance from a dictionary.
         Fetches repository information from GitHub using the provided token.
         """
         name = dct.get('name')
         owner = dct.get('owner__username')
-        repo = gh.get_repo(f"{owner}/{name}")
+        if not update:
+            repo = cls.objects.filter(name=name, owner__username=owner).first()
+            if repo is not None:
+                return repo
+        repo = GH_MAIN.get_repo(f"{owner}/{name}")
         return cls.create_from_obj(repo, update=update)
 
     def get_autocomplete_string(self) -> str:
@@ -347,7 +352,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
         return {'owner__username': owner, 'name': name}
 
     @classmethod
-    def filter_autocomplete_string(cls, autocomplete_string: str):
+    def filter_autocomplete_string(cls, autocomplete_string: str) -> models.Q:
         """
         Filter repositories based on an autocomplete string.
         This method should be overridden in subclasses to handle specific filtering logic.
@@ -367,13 +372,12 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
         repos = user.gh_obj.get_repos()
         return [cls.create_from_obj(repo) for repo in repos]
 
-    @with_github
-    def get_gh_obj(self, *, gh: Github) -> github.Repository.Repository:
+    def get_gh_obj(self) -> github.Repository.Repository:
         """
         Fetch the GitHub repository object using the provided GitHub instance.
         This method is used to ensure that the GitHub repository object is always up-to-date.
         """
-        return gh.get_repo(f"{self.owner.username}/{self.name}")
+        return GH_MAIN.get_repo(f"{self.owner.username}/{self.name}")
 
 # class GithubBranch(GithubMixin):
 #     """Model representing a GitHub branch."""
@@ -556,7 +560,8 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
             do_comments: bool = False,
             do_files: bool = False,
             update: bool = False,
-            since: datetime = None
+            # since: datetime = None,
+            since_number: int = None
         ) -> list[Self]:
         """
         Fetch all issues for a given GitHub repository.
@@ -565,37 +570,53 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         filter_args = {
             'state': 'all',
             'sort': 'created',
-            'direction': 'asc'
+            'direction': 'desc'
         }
         if not update:
-            if since is None:
+            if since_number is None:
                 last_created = cls.objects.filter(repository=repository).order_by('-created_at').first()
                 if last_created:
-                    since = last_created.created_at + timedelta(seconds=1)
-                logger.info(f"Fetching from last created issue: {last_created},  since: {since}")
-        if since:
-            filter_args['since'] = since
+                    since_number = last_created.number + 1
+        if since_number is None:
+            since_number = 1
 
-        issues = repository.gh_obj.get_issues(**filter_args)
-        issues.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        issues = progress_bar(
-            issues, description=f"Fetching issues from {repository}"
-        )
         res = []
-        for issue in issues:
-            issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
-            issue_obj.get_assignes()  # Fetch assignees for the issue
-            if do_comments:
-                issue_obj.get_comments()  # Fetch comments for the issue
+        repo = repository.gh_obj
+
+        last_issue_num = repo.get_issues(**filter_args)[0].number
+
+        iterator = progress_bar(
+            range(since_number, last_issue_num + 1),
+            description=f"Fetching issues from {repository} since #{since_number}",
+        )
+        for issue_number in iterator:
+            # logger.warning(f"Processing issue #{issue_number} from {repository}")
+            issue = repo.get_issue(number=issue_number)
+            try:
+                issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
+                issue_obj.get_assignes()
+
+                if do_comments:
+                    issue_obj.get_comments()
+            except Exception as e:
+                logger.error(f"Error processing issue #{issue_number}: {e}", exc_info=True)
+                sys.exit(1)
+
             res.append(issue_obj)
             if do_prs and issue.pull_request:
-                pr_obj = GithubPullRequest.from_number(repository=repository, number=issue.number, update=update)
-                pr_obj.get_assignes()  # Fetch assignees for the PR
-                if do_comments:
-                    # pr_obj.get_comments()
-                    pr_obj.get_reviews()
-                if do_files:
-                    pr_obj.get_files()
+                try:
+                    pr_obj = GithubPullRequest.from_number(
+                        repository=repository, number=issue_number, update=update
+                    )
+                    pr_obj.get_assignes()
+                    if do_comments:
+                        # pr_obj.get_comments()
+                        pr_obj.get_reviews()
+                    if do_files:
+                        pr_obj.get_files()
+                except Exception as e:
+                    logger.error(f"Error processing PR for issue #{issue_number}: {e}", exc_info=True)
+                    sys.exit(1)
         return res
 
     def update(self):
@@ -640,8 +661,7 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         """Fetch the participants data for the issue."""
         raise NotImplementedError('Need to implement participation from both commenters and other')
 
-    @with_github
-    def get_gh_obj(self, *, gh: Github) -> github.Issue.Issue:
+    def get_gh_obj(self) -> github.Issue.Issue:
         """
         Fetch the GitHub issue object using the provided GitHub instance.
         This method is used to ensure that the GitHub issue object is always up-to-date.
@@ -811,24 +831,6 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
             self.get_reviews()  # Fetch reviews after updating the PR
             self.get_files()  # Fetch files after updating the PR
 
-    # def get_comments(self) -> list['GithubPRComment']:
-    #     """
-    #     Fetch all comments for this pull request.
-    #     Returns a list of GithubPRComment instances.
-    #     """
-    #     comments = self.gh_obj.get_comments()
-    #     # comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-    #     # comments = progress_bar(
-    #     #     comments, description=f"Fetching comments for {self}"
-    #     # )
-
-    #     res = []
-    #     for comment in comments:
-    #         comment_obj = GithubPRComment.create_from_obj(comment, foreign={'pull_request': self})
-    #         res.append(comment_obj)
-
-    #     return res
-
     def get_assignes(self) -> list[GithubUser]:
         """"Fetch the assignees data for the issue."""
         users = [GithubUser.from_username(assigne.login) for assigne in self.gh_obj.assignees]
@@ -872,34 +874,12 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         """Fetch the participants data for the issue."""
         raise NotImplementedError('Need to implement participation from both commenters and other')
 
-    @with_github
-    def get_gh_obj(self, *, gh: Github) -> github.PullRequest.PullRequest:
+    def get_gh_obj(self) -> github.PullRequest.PullRequest:
         """
         Fetch the GitHub pull request object using the provided GitHub instance.
         This method is used to ensure that the GitHub pull request object is always up-to-date.
         """
         return self.repository.gh_obj.get_pull(self.number)
-
-# class GithubPRComment(GithubMixin[github.PullRequestComment.PullRequestComment]):
-#     """Model representing a comment on a GitHub Pull Request."""
-#     body = models.TextField()
-#     pull_request = models.ForeignKey(GithubPullRequest, related_name='comments', on_delete=models.CASCADE)
-
-#     created_by = models.ForeignKey(
-#         GithubUser, related_name='created_pull_request_comments', on_delete=models.CASCADE, null=True, blank=True
-#     )
-
-#     created_at = models.DateTimeField()
-#     # updated_at = models.DateTimeField()
-
-#     obj_col_map = [
-#         ColObjMap('body', 'body'),
-#         ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
-#         ColObjMap('created_at', 'created_at'),
-#     ]
-
-#     def __str__(self):
-#         return f"{self.pull_request} : {self.body[:30]}"
 
 class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
     """Model representing a review on a GitHub Pull Request."""
@@ -921,7 +901,9 @@ class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
 
     obj_col_map = [
         ColObjMap('body', 'body'),
-        ColObjMap('created_by', 'user.login', converter=GithubUser.from_username),
+        # Apparently some review can return user=None (e.g. easybuilders/easybuild-easyconfigs #3161)
+        # Bug in PyGithub or wierd behavior in the API? -> default None to avoid error
+        ColObjMap('created_by', 'user.login', default=None, converter=GithubUser.from_username),
         ColObjMap('state', 'state'),
         ColObjMap('submitted_at', 'submitted_at'),
     ]
