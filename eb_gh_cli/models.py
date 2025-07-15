@@ -28,7 +28,7 @@ from django.core.files.base import ContentFile
 from django.db import models
 from github import Auth, Github
 
-from .progress import progress_bar
+from .progress import progress_bar, progress_clean_tasks
 
 O = TypeVar('O', bound=github.GithubObject.GithubObject)
 
@@ -624,6 +624,7 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
                 except Exception as e:
                     logger.error(f"Error processing PR for issue #{issue_number}: {e}", exc_info=True)
                     sys.exit(1)
+            progress_clean_tasks()
         return res
 
     def update(self):
@@ -644,10 +645,9 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         Returns a list of GithubIssueComment instances.
         """
         comments = self.gh_obj.get_comments()
-        # comments.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        # comments = progress_bar(
-        #     comments, description=f"Fetching comments for {self}"
-        # )
+        comments = progress_bar(
+            comments, total=comments.totalCount, description=f"-- Fetching comments for Issue#{self.number}"
+        )
 
         res = []
         for comment in comments:
@@ -802,9 +802,9 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         Returns a list of GithubPullRequest instances.
         """
         pull_requests = repository.gh_obj.get_pulls(state='all', sort='created', direction='desc')
-        pull_requests.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
         pull_requests = progress_bar(
-            pull_requests, total=pull_requests.totalCount, description=f'Fetching pull requests from {repository}'
+            pull_requests, total=pull_requests.totalCount,
+            description=f'Fetching pull requests from {repository}'
         )
 
         # last_created_at = cls.objects.order_by('-created_at').first()
@@ -849,10 +849,10 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
     def get_reviews(self) -> list['GithubPRReview']:
         """Fetch the reviewes data for the pull request."""
         reviews = self.gh_obj.get_reviews()
-        # reviews.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        # reviews = progress_bar(
-        #     reviews, description=f"Fetching reviews for {self}"
-        # )
+        reviews = progress_bar(
+            reviews, total=reviews.totalCount,
+            description=f"-- Fetching reviews for PR#{self.number}"
+        )
         res = []
         reviewers = []
         for review in reviews:
@@ -867,10 +867,10 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
     def get_files(self) -> list['GithubPRFile']:
         """Fetch the files changed in the pull request."""
         files = self.gh_obj.get_files()
-        # files.__class__.__len__ = lambda _: _.totalCount  # Override len to return total count
-        # files = progress_bar(
-        #     files, description=f"Fetching files for {self}"
-        # )
+        files = progress_bar(
+            files, total=files.totalCount,
+            description=f"-- Fetching files for PR#{self.number}"
+        )
         res = []
         try:
             for file in files:
