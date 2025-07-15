@@ -17,6 +17,14 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 GH_DB_ROOT = os.environ.get('GH_DB_ROOT', os.path.expanduser('~/.gh_db'))
 
+stream_handler = 'logging.StreamHandler'
+try:
+    import rich
+except:
+    pass
+else:
+    stream_handler = 'rich.logging.RichHandler'
+
 
 # Logging
 LOGGING = {
@@ -37,7 +45,7 @@ LOGGING = {
         'console': {
             'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO').upper(),
             # 'filters': ['require_debug_true'],
-            'class': 'logging.StreamHandler',
+            'class': stream_handler,
             'formatter': 'medium',
         },
     },

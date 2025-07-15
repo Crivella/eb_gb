@@ -14,6 +14,7 @@ import github
 import github.File
 import github.Gist
 import github.GistFile
+import github.GithubException
 import github.GithubObject
 import github.Issue
 import github.IssueComment
@@ -871,9 +872,12 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         #     files, description=f"Fetching files for {self}"
         # )
         res = []
-        for file in files:
-            file_obj = GithubPRFile.create_from_obj(file, foreign={'pull_request': self})
-            res.append(file_obj)
+        try:
+            for file in files:
+                file_obj = GithubPRFile.create_from_obj(file, foreign={'pull_request': self})
+                res.append(file_obj)
+        except github.GithubException as e:
+            logger.warning(f'Error fetching files for {self}: {e}')
         return res
 
     def get_participants(self) -> list[GithubUser]:
