@@ -18,12 +18,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 GH_DB_ROOT = os.environ.get('GH_DB_ROOT', os.path.expanduser('~/.gh_db'))
 
 stream_handler = 'logging.StreamHandler'
+stream_handler_kwargs = {}
 try:
-    import rich
+    from rich.logging import RichHandler
 except:
     pass
 else:
     stream_handler = 'rich.logging.RichHandler'
+    stream_handler_kwargs = {
+        'rich_tracebacks': True,
+        'tracebacks_suppress': ['click'],
+    }
 
 
 # Logging
@@ -47,6 +52,7 @@ LOGGING = {
             # 'filters': ['require_debug_true'],
             'class': stream_handler,
             'formatter': 'medium',
+            **stream_handler_kwargs,
         },
     },
     'loggers': {
