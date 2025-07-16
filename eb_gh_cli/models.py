@@ -591,7 +591,14 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
             description=f"Fetching issues from {repository} since #{since_number}",
         )
         for issue_number in iterator:
-            issue = repo.get_issue(number=issue_number)
+            try:
+                issue = repo.get_issue(number=issue_number)
+            except github.UnknownObjectException:
+                logger.warning(f"Issue #{issue_number} not found in {repository}. Skipping.")
+                continue
+            except Exception as e:
+                logger.error(f"Error fetching issue #{issue_number}: {e}", exc_info=True)
+                continue
             if repo.name != issue.repository.name or issue.number != issue_number:
                 logger.info(
                     f'Issue mismatch: requested = {repo.owner.login}/{repo.name}#{issue_number}, '
