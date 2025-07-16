@@ -4,6 +4,7 @@ import logging
 import os
 
 from github import Auth, Github, UnknownObjectException
+from github import logger as github_logger
 from github.File import File
 from github.Gist import Gist
 from github.GistFile import GistFile
@@ -20,6 +21,7 @@ from github.Repository import Repository
 
 logger = logging.getLogger('gh_db')
 
+
 GH_MAIN: Github = None
 
 def get_gh_main() -> Github:
@@ -28,6 +30,13 @@ def get_gh_main() -> Github:
 
     if GH_MAIN is not None:
         return GH_MAIN
+
+    # Replace the PYGithub logging handlers with the ones from this package to work better with rich
+    for hnd in github_logger.handlers:
+        github_logger.removeHandler(hnd)
+    for hnd in logger.handlers:
+        github_logger.addHandler(hnd)
+    github_logger.setLevel(logger.level)
 
     github_token: str = os.environ.get('GITHUB_TOKEN', None)
     try:
