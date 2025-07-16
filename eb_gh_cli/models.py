@@ -1,6 +1,5 @@
 """GitHub-related models for Django application."""
 # https://github.com/typeddjango/django-stubs/issues/299  for migrations with Generic
-import atexit
 import logging
 import os
 import subprocess
@@ -9,42 +8,17 @@ from typing import Any, Callable, Generic, Self, TypeVar
 
 import django
 import django.db.utils
-import github
-# import github.Branch
-import github.File
-import github.Gist
-import github.GistFile
-import github.GithubException
-import github.GithubObject
-import github.Issue
-import github.IssueComment
-import github.Label
-import github.Milestone
-import github.NamedUser
-import github.PullRequest
-import github.PullRequestReview
-import github.Repository
 from django.core.files.base import ContentFile
 from django.db import models
-from github import Auth, Github
 
+from . import gh_api
 from .progress import progress_bar, progress_clean_tasks
 
-O = TypeVar('O', bound=github.GithubObject.GithubObject)
+O = TypeVar('O', bound=gh_api.GithubObject)
 
 logger = logging.getLogger('gh_db')
 
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', None)
-try:
-    TOK = Auth.Token(GITHUB_TOKEN)
-except AssertionError:
-    logger.warning(
-        'GITHUB_TOKEN is not set or invalid. Running as an unauthenticated user (Beware of rate-limits).'
-    )
-    TOK = None
 
-GH_MAIN = Github(auth=TOK)
-atexit.register(GH_MAIN.close)
 
 try:
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'eb_gh_cli.settings')
@@ -248,7 +222,7 @@ class GithubMixin(models.Model, Generic[O]):
         """
         raise self.DoesNotSupportDirectCreation(f"{self.__class__.__name__}.get_gh_obj must be implemented.")
 
-class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
+class GithubUser(GithubMixin[gh_api.NamedUser]):
     """Model representing a GitHub user."""
     username = models.CharField(max_length=255, unique=True)
     email = models.EmailField(unique=False, blank=True, null=True)
@@ -277,7 +251,7 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
             user = cls.objects.filter(username=username).first()
             if user is not None:
                 return user
-        user = GH_MAIN.get_user(username)
+        user = gh_api.get_gh_main().get_user(username)
         return cls.create_from_obj(user, update=update)
 
     @classmethod
@@ -308,14 +282,14 @@ class GithubUser(GithubMixin[github.NamedUser.NamedUser]):
     def filter_autocomplete_string(cls, autocomplete_string) -> models.Q:
         return models.Q(username__istartswith=autocomplete_string)
 
-    def get_gh_obj(self) -> github.NamedUser.NamedUser:
+    def get_gh_obj(self) -> gh_api.NamedUser:
         """
         Fetch the GitHub user object using the provided GitHub instance.
         This method is used to ensure that the GitHub user object is always up-to-date.
         """
-        return GH_MAIN.get_user_by_id(self.gh_id)
+        return gh_api.get_gh_main().get_user_by_id(self.gh_id)
 
-class GithubRepository(GithubMixin[github.Repository.Repository]):
+class GithubRepository(GithubMixin[gh_api.Repository]):
     """Model representing a GitHub repository."""
     name = models.CharField(max_length=255)
     owner = models.ForeignKey(GithubUser, related_name='repositories', on_delete=models.CASCADE)
@@ -342,7 +316,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
             repo = cls.objects.filter(name=name, owner__username=owner).first()
             if repo is not None:
                 return repo
-        repo = GH_MAIN.get_repo(f"{owner}/{name}")
+        repo = gh_api.get_gh_main().get_repo(f"{owner}/{name}")
         return cls.create_from_obj(repo, update=update)
 
     def get_autocomplete_string(self) -> str:
@@ -383,12 +357,12 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
         repos = user.gh_obj.get_repos()
         return [cls.create_from_obj(repo) for repo in repos]
 
-    def get_gh_obj(self) -> github.Repository.Repository:
+    def get_gh_obj(self) -> gh_api.Repository:
         """
         Fetch the GitHub repository object using the provided GitHub instance.
         This method is used to ensure that the GitHub repository object is always up-to-date.
         """
-        return GH_MAIN.get_repo(f"{self.owner.username}/{self.name}")
+        return gh_api.get_gh_main().get_repo(f"{self.owner.username}/{self.name}")
 
 # class GithubBranch(GithubMixin):
 #     """Model representing a GitHub branch."""
@@ -424,7 +398,7 @@ class GithubRepository(GithubMixin[github.Repository.Repository]):
 #     def gh_obj(self) -> github.Branch.Branch:
 #         return super().gh_obj
 
-class GithubLabel(GithubMixin[github.Label.Label]):
+class GithubLabel(GithubMixin[gh_api.Label]):
     """Model representing a GitHub label."""
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -441,7 +415,7 @@ class GithubLabel(GithubMixin[github.Label.Label]):
     def __str__(self):
         return f"{self.repository.name}#{self.name}"
 
-class GithubMilestone(GithubMixin[github.Milestone.Milestone]):
+class GithubMilestone(GithubMixin[gh_api.Milestone]):
     """Model representing a GitHub milestone."""
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -473,7 +447,7 @@ class GithubMilestone(GithubMixin[github.Milestone.Milestone]):
     def __str__(self):
         return f"{self.repository.name}#{self.title} ({self.state})"
 
-class GithubIssue(GithubMixin[github.Issue.Issue]):
+class GithubIssue(GithubMixin[gh_api.Issue]):
     """Model representing a GitHub issue."""
     class Meta:
         unique_together = ('repository', 'number')
@@ -603,7 +577,7 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         for issue_number in iterator:
             try:
                 issue = repo.get_issue(number=issue_number)
-            except github.UnknownObjectException:
+            except gh_api.UnknownObjectException:
                 logger.warning(f"Issue #{issue_number} not found in {repository}. Skipping.")
                 continue
             except Exception as e:
@@ -685,14 +659,14 @@ class GithubIssue(GithubMixin[github.Issue.Issue]):
         """Fetch the participants data for the issue."""
         raise NotImplementedError('Need to implement participation from both commenters and other')
 
-    def get_gh_obj(self) -> github.Issue.Issue:
+    def get_gh_obj(self) -> gh_api.Issue:
         """
         Fetch the GitHub issue object using the provided GitHub instance.
         This method is used to ensure that the GitHub issue object is always up-to-date.
         """
         return self.repository.gh_obj.get_issue(self.number)
 
-class GithubIssueComment(GithubMixin[github.IssueComment.IssueComment]):
+class GithubIssueComment(GithubMixin[gh_api.IssueComment]):
     """Model representing a GitHub comment."""
     body = models.TextField()
     issue = models.ForeignKey('GithubIssue', related_name='comments', on_delete=models.CASCADE)
@@ -711,7 +685,7 @@ class GithubIssueComment(GithubMixin[github.IssueComment.IssueComment]):
         ColObjMap('updated_at', 'updated_at')
     ]
 
-class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
+class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
     """Model representing a GitHub Pull Request."""
     class Meta:
         unique_together = ('repository', 'number')
@@ -900,7 +874,7 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
             for file in files:
                 file_obj = GithubPRFile.create_from_obj(file, foreign={'pull_request': self})
                 res.append(file_obj)
-        except github.GithubException as e:
+        except gh_api.GithubException as e:
             logger.warning(f'Error fetching files for {self}: {e}')
         return res
 
@@ -908,14 +882,14 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
         """Fetch the participants data for the issue."""
         raise NotImplementedError('Need to implement participation from both commenters and other')
 
-    def get_gh_obj(self) -> github.PullRequest.PullRequest:
+    def get_gh_obj(self) -> gh_api.PullRequest:
         """
         Fetch the GitHub pull request object using the provided GitHub instance.
         This method is used to ensure that the GitHub pull request object is always up-to-date.
         """
         return self.repository.gh_obj.get_pull(self.number)
 
-class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
+class GithubPRReview(GithubMixin[gh_api.PullRequestReview]):
     """Model representing a review on a GitHub Pull Request."""
     body = models.TextField()
     pull_request = models.ForeignKey(GithubPullRequest, related_name='reviews', on_delete=models.CASCADE)
@@ -945,7 +919,7 @@ class GithubPRReview(GithubMixin[github.PullRequestReview.PullRequestReview]):
     def __str__(self):
         return f"{self.pull_request} : {self.body[:30]} ({self.state})"
 
-class GithubPRFile(GithubMixin[github.File.File]):
+class GithubPRFile(GithubMixin[gh_api.File]):
     """Model representing a file in a GitHub repository."""
     # See https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28#list-pull-requests-files
     filename = models.CharField(max_length=512)
@@ -1010,7 +984,7 @@ class GithubPRFile(GithubMixin[github.File.File]):
         raise NotImplementedError()  # Need to check here to go through the RestAPI with the token
 
 
-class GithubGist(GithubMixin[github.Gist.Gist]):
+class GithubGist(GithubMixin[gh_api.Gist]):
     """Model representing a GitHub Gist."""
     description = models.TextField(blank=True, null=True)
 
@@ -1045,7 +1019,7 @@ class GithubGist(GithubMixin[github.Gist.Gist]):
             res.append(gist_file)
         return res
 
-class GithubGistFile(GithubMixin[github.GistFile.GistFile]):
+class GithubGistFile(GithubMixin[gh_api.GistFile]):
     """Model representing a file in a GitHub Gist."""
 
     filename = models.CharField(max_length=512)
