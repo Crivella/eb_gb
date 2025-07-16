@@ -52,6 +52,16 @@ try:
 except RuntimeError as e:
     pass
 
+LIMIT_REJECTED_PRFILES = os.environ.get('LIMIT_REJECTED_PRFILES', 100)
+try:
+    LIMIT_REJECTED_PRFILES = int(LIMIT_REJECTED_PRFILES)
+except ValueError:
+    logger.error(
+        f'LIMIT_REJECTED_PRFILES environment variable is not an integer: {LIMIT_REJECTED_PRFILES}. '
+        'Defaulting to 100.'
+    )
+    LIMIT_REJECTED_PRFILES = 100
+
 class NODEFAULT:
     """A sentinel value to indicate that a default value is not provided."""
 
@@ -874,6 +884,13 @@ class GithubPullRequest(GithubMixin[github.PullRequest.PullRequest]):
     def get_files(self) -> list['GithubPRFile']:
         """Fetch the files changed in the pull request."""
         files = self.gh_obj.get_files()
+        total = files.totalCount
+        if total > LIMIT_REJECTED_PRFILES and self.is_closed and not self.is_merged:
+            logger.warning(
+                f"Pull request {self.number} has {total} files changed, "
+                'and is closed but not merged. Skipping files...'
+            )
+            return []
         files = progress_bar(
             files, total=files.totalCount,
             description=f"-- Fetching files for PR#{self.number}"
