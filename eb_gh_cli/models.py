@@ -865,8 +865,13 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
                 'and is closed but not merged. Skipping files...'
             )
             return []
+        if total >= 3000:
+            logger.warning(
+                f"Pull request #{self.number} has {total} files (>3000 limit for REST API). Limiting to 3000 files.."
+            )
+            total = 3000
         files = progress_bar(
-            files, total=files.totalCount,
+            files, total=total,
             description=f"-- Fetching files for PR#{self.number}"
         )
         res = []
