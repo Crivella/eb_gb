@@ -84,7 +84,7 @@ def sync_repo(
     gh_repo: m.GithubRepository,
     # since: datetime = None,
     since_number: int = None,
-    update_open: int = 1,
+    update_open: int = None,
     comments: bool = True, files: bool = True
 ):
     """Synchronize a GitHub repository Issue and PRs with the database."""
@@ -95,7 +95,7 @@ def sync_repo(
             since_number=since_number,
             do_prs=True, do_comments=comments, do_files=files,
         )
-        click.echo(f'Issues fetched: {len(issue_lst)}')
+        click.echo(f'New Issues fetched: {len(issue_lst)}')
     except django.core.exceptions.ValidationError as e:
         click.echo(f'Error creating issue: {e}')
 
