@@ -4,7 +4,7 @@ import django.core
 import django.core.exceptions
 
 from .. import models as m
-from ..progress import progress_bar
+from ..progress import progress_bar, progress_clean_tasks
 from . import click
 from . import click_types as ct
 from . import options as opt
@@ -76,7 +76,7 @@ def comments_from_issue(gh_issue, verbose):
 @opt.FILTER_USER_OPTION
 # @opt.SINCE_OPTION
 @opt.SINCE_NUMBER_OPTION
-@click.option('--update-open', is_flag=True, default=False, help='Update open issues and PRs.')
+@click.option('--update-open', type=click.IntRange(min=1), help='Update open issues and PRs.')
 @click.option('--comments/--no-comments', is_flag=True, default=True, help='Fetch comments for issues and PRs.')
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for issues and PRs.')
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
@@ -84,7 +84,8 @@ def sync_repo(
     gh_repo: m.GithubRepository,
     # since: datetime = None,
     since_number: int = None,
-    update_open: bool = False, comments: bool = True, files: bool = True
+    update_open: int = 1,
+    comments: bool = True, files: bool = True
 ):
     """Synchronize a GitHub repository Issue and PRs with the database."""
     try:
@@ -104,22 +105,34 @@ def sync_repo(
 
         q = gh_repo.issues
         q = q.filter(is_closed=False)
+        q = q.filter(number__gte=update_open)
         q = q.exclude(number__in=numbers)
         open_issues = q.all()
         open_issues = progress_bar(
             open_issues,
             description=f'Updating {len(open_issues)} open issues',
         )
+        updated = []
         for issue in open_issues:
-            issue.update()
+            new = issue.update()
+            if new:
+                updated.append(new)
+            progress_clean_tasks()
+        click.echo(f'Updated {len(updated)} open issues.')
 
         q = gh_repo.pull_requests
         q = q.filter(is_merged=False, is_closed=False)
+        q = q.filter(number__gte=update_open)
         q = q.exclude(number__in=numbers)
         open_prs = q.all()
         open_prs = progress_bar(
             open_prs,
             description=f'Updating {len(open_prs)} open pull requests',
         )
+        updated = []
         for pr in open_prs:
-            pr.update()
+            new = pr.update()
+            if new:
+                updated.append(new)
+            progress_clean_tasks()
+        click.echo(f'Updated {len(updated)} open pull requests.')

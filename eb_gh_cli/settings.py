@@ -19,6 +19,7 @@ GH_DB_ROOT = os.environ.get('GH_DB_ROOT', os.path.expanduser('~/.gh_db'))
 
 stream_handler = 'logging.StreamHandler'
 stream_handler_kwargs = {}
+fmt_str = '{asctime} - {levelname:>7s} - {name:>15s}:{module:<15s} - {message}'
 try:
     from rich.logging import RichHandler
 except:
@@ -29,6 +30,7 @@ else:
         'rich_tracebacks': True,
         'tracebacks_suppress': ['click'],
     }
+    fmt_str = '{message}'
 
 
 # Logging
@@ -37,7 +39,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'medium': {
-            'format': '{asctime} - {levelname:>7s} - {name:>15s}:{module:<15s} - {message}',
+            'format': fmt_str,
             'style': '{',
             },
     },

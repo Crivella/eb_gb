@@ -618,17 +618,39 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
             progress_clean_tasks()
         return res
 
-    def update(self):
+    def update(self) -> Self | None:
         """
         Update the issue object from GitHub.
         This method fetches the latest data from GitHub and updates the instance.
         """
         if self.gh_obj.updated_at > self.updated_at:
-            logger.info(f"Updating issue {self.number} from GitHub.")
             # Fetch the latest issue object from GitHub
-            self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
-            self.get_assignes()  # Fetch assignees after updating the issue
-            self.get_comments()  # Fetch comments after updating the issue
+            pre_num_comments = self.comments.count()
+            pre_num_assignes = self.assignees.count()
+
+            new = self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
+            new.get_assignes()  # Fetch assignees after updating the issue
+            new.get_comments()  # Fetch comments after updating the issue
+
+            post_num_comments = new.comments.count()
+            post_num_assignes = new.assignees.count()
+
+            msg = []
+            if pre_num_comments != post_num_comments:
+                msg.append(f"Comments: {pre_num_comments} -> {post_num_comments}")
+            if pre_num_assignes != post_num_assignes:
+                msg.append(f"Assignees: {pre_num_assignes} -> {post_num_assignes}")
+
+            if new.is_closed:
+                msg.append(f"Closed at: {new.closed_at}")
+
+            if not msg:
+                msg.append('No changes detected.')
+
+            logger.info(f"Updated Issue #{new.number}: {', '.join(msg)}")
+
+            return new
+        return None
 
     def get_comments(self) -> list['GithubIssueComment']:
         """
@@ -817,17 +839,46 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         pr = repository.gh_obj.get_pull(number)
         return cls.create_from_obj(pr, foreign={'repository': repository}, update=update)
 
-    def update(self):
+    def update(self) -> Self | None:
         """
         Update the pull request object from GitHub.
         This method fetches the latest data from GitHub and updates the instance.
         """
         if self.gh_obj.updated_at > self.updated_at:
-            logger.info(f"Updating pull request {self.number} from GitHub.")
-            self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
-            self.get_assignes()
-            self.get_reviews()  # Fetch reviews after updating the PR
-            self.get_files()  # Fetch files after updating the PR
+            prev_num_files = self.files.count()
+            prev_num_assignees = self.assignees.count()
+            prev_num_reviews = self.reviews.count()
+
+            new = self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
+            new.get_assignes()
+            new.get_reviews()  # Fetch reviews after updating the PR
+            new.get_files()  # Fetch files after updating the PR
+
+            post_num_files = new.files.count()
+            post_num_assignees = new.assignees.count()
+            post_num_reviews = new.reviews.count()
+
+            msg = []
+            if post_num_files != prev_num_files:
+                msg.append(f"#Files: {prev_num_files} -> {post_num_files}")
+            if post_num_assignees != prev_num_assignees:
+                msg.append(f"#Assignees: {prev_num_assignees} -> {post_num_assignees}")
+            if post_num_reviews != prev_num_reviews:
+                msg.append(f"#Reviews: {prev_num_reviews} -> {post_num_reviews}")
+
+            if new.is_closed:
+                if new.is_merged:
+                    msg.append(f'PR merged at: {new.merged_at}')
+                else:
+                    msg.append(f'PR closed at: {new.closed_at}')
+
+            if not msg:
+                msg.append('No changes detected')
+
+            logger.info(f"Updated PR {new.number}:  {', '.join(msg)}")
+
+            return new
+        return None
 
     def get_assignes(self) -> list[GithubUser]:
         """"Fetch the assignees data for the issue."""
