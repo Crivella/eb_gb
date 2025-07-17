@@ -928,7 +928,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         res = []
         try:
             for file in files:
-                file_obj = GithubPRFile.create_from_obj(file, foreign={'pull_request': self})
+                file_obj = GithubFile.create_from_obj(file, foreign={'pull_request': self})
                 res.append(file_obj)
         except gh_api.GithubException as e:
             logger.warning(f'Error fetching files for {self}: {e}')
@@ -975,7 +975,7 @@ class GithubPRReview(GithubMixin[gh_api.PullRequestReview]):
     def __str__(self):
         return f"{self.pull_request} : {self.body[:30]} ({self.state})"
 
-class GithubPRFile(GithubMixin[gh_api.File]):
+class GithubFile(GithubMixin[gh_api.File]):
     """Model representing a file in a GitHub repository."""
     # See https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28#list-pull-requests-files
     filename = models.CharField(max_length=512)

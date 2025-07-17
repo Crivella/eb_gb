@@ -5,6 +5,7 @@ import os
 
 from github import Auth, Github, UnknownObjectException
 from github import logger as github_logger
+from github.Commit import Commit
 from github.File import File
 from github.Gist import Gist
 from github.GistFile import GistFile
@@ -56,6 +57,7 @@ __all__ = [
     'GH_MAIN',
     'get_gh_main',
     'Auth',
+    'Commit',
     'Github',
     'File',
     'Gist',
