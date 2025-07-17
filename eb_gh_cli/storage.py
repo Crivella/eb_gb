@@ -135,7 +135,7 @@ class DOSStorage(Storage):
     def _open(self, name: str, mode='rb') -> File:  # pylint: disable=unused-argument
         """Open the file with gzip if compression is enabled."""
         with self.container as container:
-            content = container.get_objects_content(name)
+            content = container.get_object_content(name)
         return ContentFile(content, name=name)
 
     def _save(self, name: str, content: File) -> str:  # pylint: disable=unused-argument
