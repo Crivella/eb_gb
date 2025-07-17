@@ -754,7 +754,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
     obj_col_map = [
         ColObjMap('sha', 'sha'),
         ColObjMap('message', 'commit.message', default=None),
-        ColObjMap('author', 'author.login', converter=GithubUser.from_username),
+        ColObjMap('author', 'author.login', default=None, converter=GithubUser.from_username),
         # ColObjMap('committer', 'committer.login', default=None, converter=GithubUser.from_username),
         ColObjMap('last_modified', 'last_modified_datetime')
     ]
