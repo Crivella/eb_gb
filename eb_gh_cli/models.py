@@ -222,6 +222,23 @@ class GithubMixin(models.Model, Generic[O]):
         """
         raise self.DoesNotSupportDirectCreation(f"{self.__class__.__name__}.get_gh_obj must be implemented.")
 
+    def update_related(self, rel_name: str, objects: list):
+        """
+        Update a related field with a list of objects.
+        This method is used to update many-to-many relationships.
+        """
+        rel = getattr(self, rel_name)
+        prev = set(rel.all())
+        new = set(objects)
+        to_remove = prev - new
+        to_add = new - prev
+        if to_remove:
+            rel.remove(*to_remove)
+            logger.debug(f"Removed {len(to_remove)} objects from {rel_name} for {self}.")
+        if to_add:
+            rel.add(*to_add)
+            logger.debug(f"Added {len(to_add)} objects to {rel_name} for {self}.")
+
 class GithubUser(GithubMixin[gh_api.NamedUser]):
     """Model representing a GitHub user."""
     username = models.CharField(max_length=255, unique=True)
@@ -544,6 +561,7 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
             do_prs: bool = False,
             do_comments: bool = False,
             do_files: bool = False,
+            do_commits: bool = False,
             update: bool = False,
             # since: datetime = None,
             since_number: int = None
@@ -608,10 +626,11 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
                     )
                     pr_obj.get_assignes()
                     if do_comments:
-                        # pr_obj.get_comments()
                         pr_obj.get_reviews()
                     if do_files:
                         pr_obj.get_files()
+                    if do_commits:
+                        pr_obj.get_commits(do_files=do_files)
                 except Exception as e:
                     logger.error(f"Error processing PR for issue #{issue_number}: {e}", exc_info=True)
                     sys.exit(1)
@@ -672,9 +691,8 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
     def get_assignes(self) -> list[GithubUser]:
         """"Fetch the assignees data for the issue."""
         users = [GithubUser.from_username(assigne.login) for assigne in self.gh_obj.assignees]
-        self.assignees.clear()  # Clear existing assignees
-        self.assignees.add(*users)
 
+        self.update_related('assignees', users)
         return users
 
     def get_participants(self) -> list[GithubUser]:
@@ -707,6 +725,100 @@ class GithubIssueComment(GithubMixin[gh_api.IssueComment]):
         ColObjMap('updated_at', 'updated_at')
     ]
 
+class GithubCommit(GithubMixin[gh_api.Commit]):
+    """Model representing a GitHub commit."""
+    class Meta:
+        unique_together = ('repository', 'sha')
+    sha = models.CharField(max_length=40, unique=True)
+    message = models.TextField(blank=True, null=True)
+    author = models.ForeignKey(
+        GithubUser, related_name='authored_commits', on_delete=models.CASCADE, null=True, blank=True
+    )
+    # This seems equivalent to the author by looking at the REST API documentation
+    # committer = models.ForeignKey(
+    #     GithubUser, related_name='committed_commits', on_delete=models.CASCADE, null=True, blank=True
+    # )
+
+    repository = models.ForeignKey(GithubRepository, related_name='commits', on_delete=models.CASCADE)
+
+    parents = models.ManyToManyField(
+        'self', symmetrical=False, related_name='child_commits', blank=True,
+        help_text='Parent commits of this commit'
+    )
+
+    last_modified = models.DateTimeField(help_text='Last modified time of the commit')
+
+    id_key = None
+    url_key = 'url'
+
+    obj_col_map = [
+        ColObjMap('sha', 'sha'),
+        ColObjMap('message', 'commit.message', default=None),
+        ColObjMap('author', 'author.login', converter=GithubUser.from_username),
+        # ColObjMap('committer', 'committer.login', default=None, converter=GithubUser.from_username),
+        ColObjMap('last_modified', 'last_modified_datetime')
+    ]
+
+    def __str__(self):
+        return f"{self.repository.name}#{self.sha[:7]}: {self.message[:30]}"
+
+    def get_files(self, pull_request: 'GithubPullRequest' = None) -> list['GithubFile']:
+        """
+        Fetch all files associated with this commit.
+        Returns a list of GithubFile instances.
+        """
+        files = self.gh_obj.files
+        total = files.totalCount
+        if pull_request is not None:
+            if total > LIMIT_REJECTED_PRFILES and pull_request.is_closed and not pull_request.is_merged:
+                logger.warning(
+                    f"Commit {self.sha[:8]} has {total} files changed, "
+                    'and is closed but not merged. Skipping files...'
+                )
+                return []
+        if total >= 3000:
+            logger.warning(
+                f"Commit #{self.sha[:8]} has {total} files (>3000 limit for REST API). Limiting to 3000 files.."
+            )
+            total = 3000
+        files = progress_bar(
+            files, total=total,
+            description=f"-- Fetching files for Commit {self.sha[:8]} in {self.repository.name}"
+        )
+
+        res = []
+        for file in files:
+            file_obj = GithubFile.create_from_obj(file, foreign={'commit': self})
+            res.append(file_obj)
+
+        return res
+
+    def get_parents(self) -> list['GithubCommit']:
+        """
+        Fetch the parent commits of this commit.
+        Returns a list of GithubCommit instances.
+        """
+        parents = self.gh_obj.parents
+        parents = progress_bar(
+            parents, total=len(parents),
+            description=f"-- Fetching parents for Commit {self.sha[:8]} in {self.repository.name}"
+        )
+
+        res = []
+        for parent in parents:
+            parent_obj = GithubCommit.create_from_obj(parent, foreign={'repository': self.repository})
+            res.append(parent_obj)
+
+        self.update_related('parents', res)
+        return res
+
+    def get_gh_obj(self) -> gh_api.Commit:
+        """
+        Fetch the GitHub commit object using the provided GitHub instance.
+        This method is used to ensure that the GitHub commit object is always up-to-date.
+        """
+        return self.repository.gh_obj.get_commit(self.sha)
+
 class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
     """Model representing a GitHub Pull Request."""
     class Meta:
@@ -736,6 +848,11 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
     labels = models.ManyToManyField('GithubLabel', related_name='pull_requests', blank=True)
     milestone = models.ForeignKey(
         'GithubMilestone', related_name='pull_requests', on_delete=models.CASCADE, null=True, blank=True
+    )
+
+    commits = models.ManyToManyField(
+        GithubCommit, related_name='pull_requests', blank=True,
+        help_text='Commits associated with this pull request'
     )
 
     created_at = models.DateTimeField()
@@ -883,9 +1000,8 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
     def get_assignes(self) -> list[GithubUser]:
         """"Fetch the assignees data for the issue."""
         users = [GithubUser.from_username(assigne.login) for assigne in self.gh_obj.assignees]
-        self.assignees.clear()  # Clear existing assignees
-        self.assignees.add(*users)
 
+        self.update_related('assignees', users)
         return users
 
     def get_reviews(self) -> list['GithubPRReview']:
@@ -901,12 +1017,11 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
             review_obj = GithubPRReview.create_from_obj(review, foreign={'pull_request': self})
             reviewers.append(review_obj.created_by)
             res.append(review_obj)
-        self.reviewers.clear()  # Clear existing reviewers
-        self.reviewers.add(*reviewers)
 
+        self.update_related('reviews', res)
         return res
 
-    def get_files(self) -> list['GithubPRFile']:
+    def get_files(self) -> list['GithubFile']:
         """Fetch the files changed in the pull request."""
         files = self.gh_obj.get_files()
         total = files.totalCount
@@ -932,6 +1047,25 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
                 res.append(file_obj)
         except gh_api.GithubException as e:
             logger.warning(f'Error fetching files for {self}: {e}')
+        return res
+
+    def get_commits(self, do_files: bool = False):
+        """Fetch the commits associated with the pull request."""
+        commits = self.gh_obj.get_commits()
+        commits = progress_bar(
+            commits, total=commits.totalCount,
+            description=f"-- Fetching commits for PR#{self.number}"
+        )
+
+        res = []
+        for commit in commits:
+            commit_obj = GithubCommit.create_from_obj(commit, foreign={'repository': self.repository})
+            res.append(commit_obj)
+            commit_obj.get_parents()  # Fetch parent commits
+            if do_files:
+                commit_obj.get_files(pull_request=self)
+
+        self.update_related('commits', res)
         return res
 
     def get_participants(self) -> list[GithubUser]:
@@ -1012,6 +1146,9 @@ class GithubFile(GithubMixin[gh_api.File]):
     pull_request = models.ForeignKey(
         GithubPullRequest, related_name='files', on_delete=models.CASCADE, null=True, blank=True
     )
+    commit = models.ForeignKey(
+        GithubCommit, related_name='files', on_delete=models.CASCADE, null=True, blank=True
+    )
 
     id_key = None
     url_key = 'raw_url'
@@ -1067,7 +1204,8 @@ class GithubGist(GithubMixin[gh_api.Gist]):
         """
         files = self.gh_obj.files
         files = progress_bar(
-            files, description=f"Fetching files for Gist {self.id} ({self.description or 'No description'})"
+            files, total=len(files),
+            description=f"Fetching files for Gist {self.id} ({self.description or 'No description'})"
         )
         res = []
         for _, file_obj in files.items():

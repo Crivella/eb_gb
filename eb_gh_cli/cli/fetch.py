@@ -77,15 +77,23 @@ def comments_from_issue(gh_issue, verbose):
 # @opt.SINCE_OPTION
 @opt.SINCE_NUMBER_OPTION
 @click.option('--update-open', type=click.IntRange(min=1), help='Update open issues and PRs.')
-@click.option('--comments/--no-comments', is_flag=True, default=True, help='Fetch comments for issues and PRs.')
-@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for issues and PRs.')
+@click.option('--prs/--no-prs', is_flag=True, default=True, help='Fetch PRs as well.')
+@click.option('--commits/--no-commits', is_flag=True, default=True, help='Fetch commits for PRs.')
+@click.option(
+    '--comments/--no-comments', is_flag=True, default=True,
+    help='Fetch comments for issues and reviews for PRs.'
+)
+@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for PRs and commits.')
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 def sync_repo(
     gh_repo: m.GithubRepository,
     # since: datetime = None,
     since_number: int = None,
     update_open: int = None,
-    comments: bool = True, files: bool = True
+    prs: bool = True,
+    commits: bool = True,
+    comments: bool = True,
+    files: bool = True
 ):
     """Synchronize a GitHub repository Issue and PRs with the database."""
     try:
@@ -93,7 +101,7 @@ def sync_repo(
             gh_repo,
             # since=since,
             since_number=since_number,
-            do_prs=True, do_comments=comments, do_files=files,
+            do_prs=prs, do_comments=comments, do_files=files, do_commits=commits
         )
         click.echo(f'New Issues fetched: {len(issue_lst)}')
     except django.core.exceptions.ValidationError as e:
@@ -120,19 +128,20 @@ def sync_repo(
             progress_clean_tasks()
         click.echo(f'Updated {len(updated)} open issues.')
 
-        q = gh_repo.pull_requests
-        q = q.filter(is_merged=False, is_closed=False)
-        q = q.filter(number__gte=update_open)
-        q = q.exclude(number__in=numbers)
-        open_prs = q.all()
-        open_prs = progress_bar(
-            open_prs,
-            description=f'Updating {len(open_prs)} open pull requests',
-        )
-        updated = []
-        for pr in open_prs:
-            new = pr.update()
-            if new:
-                updated.append(new)
-            progress_clean_tasks()
-        click.echo(f'Updated {len(updated)} open pull requests.')
+        if prs:
+            q = gh_repo.pull_requests
+            q = q.filter(is_merged=False, is_closed=False)
+            q = q.filter(number__gte=update_open)
+            q = q.exclude(number__in=numbers)
+            open_prs = q.all()
+            open_prs = progress_bar(
+                open_prs,
+                description=f'Updating {len(open_prs)} open pull requests',
+            )
+            updated = []
+            for pr in open_prs:
+                new = pr.update()
+                if new:
+                    updated.append(new)
+                progress_clean_tasks()
+            click.echo(f'Updated {len(updated)} open pull requests.')
