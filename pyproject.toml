@@ -28,6 +28,7 @@ keywords = ["django", "easybuild", "github"]
 requires-python = ">=3.11"
 dependencies = [
     "PyGithub",
+    "disk-objectstore",
     "Django~=5.2",
     "click"
 ]
@@ -65,9 +66,6 @@ pre-commit = [
     "pylint",
     "pylint-pytest",
     "pylint-django",
-]
-dosstorage = [
-    "disk-objectstore",
 ]
 release = [
     "flit"
