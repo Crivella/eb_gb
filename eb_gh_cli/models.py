@@ -776,7 +776,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
                     'and is closed but not merged. Skipping files...'
                 )
                 return []
-        if total >= 3000:
+        if total > 3000:
             logger.warning(
                 f"Commit #{self.sha[:8]} has {total} files (>3000 limit for REST API). Limiting to 3000 files.."
             )
