@@ -1023,8 +1023,12 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
 
     def get_files(self) -> list['GithubFile']:
         """Fetch the files changed in the pull request."""
-        files = self.gh_obj.get_files()
-        total = files.totalCount
+        try:
+            files = self.gh_obj.get_files()
+            total = files.totalCount
+        except gh_api.GithubException as e:
+            logger.warning(f'Error fetching files for {self}: {e}')
+            return []
         if total > LIMIT_REJECTED_PRFILES and self.is_closed and not self.is_merged:
             logger.warning(
                 f"Pull request {self.number} has {total} files changed, "
