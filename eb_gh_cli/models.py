@@ -268,7 +268,15 @@ class GithubUser(GithubMixin[gh_api.NamedUser]):
             user = cls.objects.filter(username=username).first()
             if user is not None:
                 return user
-        user = gh_api.get_gh_main().get_user(username)
+        try:
+            user = gh_api.get_gh_main().get_user(username)
+        except gh_api.UnknownObjectException:
+            mock_date = '2000-01-01T00:00:00Z'
+            user, _ = cls.objects.get_or_create(
+                username=username,
+                defaults={'email': None, 'created_at': mock_date, 'updated_at': mock_date}
+            )
+            return user
         return cls.create_from_obj(user, update=update)
 
     @classmethod
