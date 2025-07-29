@@ -609,7 +609,13 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
             except Exception as e:
                 logger.error(f"Error fetching issue #{issue_number}: {e}", exc_info=True)
                 continue
-            if repo.name != issue.repository.name or issue.number != issue_number:
+            try:
+                remote_repo_name = issue.repository.name
+                remote_repo_inum = issue.number
+            except Exception as e:
+                logger.error(f"Error accessing issue repository or number: {e}", exc_info=True)
+                continue
+            if repo.name != remote_repo_name or issue_number != remote_repo_inum:
                 logger.info(
                     f'Issue mismatch: requested = {repo.owner.login}/{repo.name}#{issue_number}, '
                     f'got = {issue.repository.owner.login}/{issue.repository.name}#{issue.number}\n'

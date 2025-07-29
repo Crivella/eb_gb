@@ -126,3 +126,4 @@ max-locals = 30
 max-module-lines = 3000
 max-attributes = 12
 max-positional-arguments=10
+max-statements = 100
