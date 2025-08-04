@@ -790,11 +790,18 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
                     'and is closed but not merged. Skipping files...'
                 )
                 return []
-        if total > 3000:
+        if total >= 3000:
             logger.warning(
-                f"Commit #{self.sha[:8]} has {total} files (>3000 limit for REST API). Limiting to 3000 files.."
+                f"Commit {self.sha[:8]} has more than 3000 files (limit for REST API). Limiting to 3000 files.."
             )
             total = 3000
+        # TODO: This should probably be a user settable filter (either through the CLI or environment variable)
+        if total > 20 and self.message.startswith('Merge branch'):
+            logger.warning(
+                f"Commit {self.sha[:8]} has {total} files changed, "
+                'and is a merge commit. Skipping files...'
+            )
+            return []
         files = progress_bar(
             files, total=total,
             description=f"-- Fetching files for Commit {self.sha[:8]} in {self.repository.name}"
