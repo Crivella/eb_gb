@@ -1,14 +1,23 @@
 """Fetch commands for the eb_gh_cli CLI."""
+import logging
+import re
+from datetime import datetime
+
 import django
 import django.core
 import django.core.exceptions
 
+from .. import gh_api
 from .. import models as m
 from ..progress import progress_bar, progress_clean_tasks
 from . import click
 from . import click_types as ct
 from . import options as opt
 from .main import fetch
+
+GIST_RGX = re.compile(r'https?://gist\.github\.com(?P<user>/[^/\n]+)?/(?P<id>[a-z0-9]+)(?:\#file-(?P<file>[^/\n]+))?')
+
+logger = logging.getLogger('gh_db')
 
 
 @fetch.command()
@@ -145,3 +154,53 @@ def sync_repo(
                     updated.append(new)
                 progress_clean_tasks()
             click.echo(f'Updated {len(updated)} open pull requests.')
+
+@fetch.command()
+@click.argument('gh-repo', type=ct.GithubRepositoryType())
+@opt.SINCE_OPTION
+@click.option(
+    '--files/--no-files',
+    is_flag=True,
+    default=True,
+    help='Fetch files for commits.',
+)
+def gists_from_issuecomments(
+    gh_repo: m.GithubRepository,
+    since: datetime = None,
+    files: bool = True,
+):
+    """Find gists URLs in commit messages and fetch them."""
+
+    click.echo(f'Fetching gists from commits in repository {gh_repo.name}...')
+    num_issues = 0
+    num_comments = 0
+    query = gh_repo.issues
+    if since:
+        query = query.filter(updated_at__gte=since)
+
+    ids = []
+    for issue in query.all():
+        num_issues += 1
+        for comment in issue.comments.all():
+            num_comments += 1
+            for mch in GIST_RGX.finditer(comment.body):
+                gist_id = mch.group('id')
+                ids.append((issue, comment, gist_id))
+
+    since_str = f">={since.strftime('%Y-%m-%d')}" if since else 'all'
+    click.echo(f'{gh_repo} ({since_str}) : {num_issues} issues : {num_comments} comments : {len(ids)} gists.')
+
+    for issue, comment, gist_id in progress_bar(
+        ids,
+        description=f'Fetching {len(ids)} gists from issue-comments',
+    ):
+        try:
+            gist = m.GithubGist.from_id(gist_id, issue=issue, comment=comment)
+            if files:
+                gist.fetch_files()
+        except gh_api.UnknownObjectException as e:
+            logger.warning(f'{issue} : {comment.url} : Gist `{gist_id}` not found: {e}')
+        except django.core.exceptions.ValidationError as e:
+            logger.error(f'{issue} : {comment.url} : Error fetching gist `{gist_id}`: {e}')
+        except Exception as e:
+            logger.error(f'{issue} : {comment.url} : Unexpected error fetching gist `{gist_id}`: {e}', exc_info=True)

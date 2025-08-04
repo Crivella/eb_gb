@@ -1206,18 +1206,38 @@ class GithubGist(GithubMixin[gh_api.Gist]):
     """Model representing a GitHub Gist."""
     description = models.TextField(blank=True, null=True)
 
+    gist_id = models.CharField(
+        max_length=128, unique=True, help_text='Unique identifier for the Gist'
+    )
+
     public = models.BooleanField(default=False)
     owner = models.ForeignKey(
         GithubUser, related_name='gists', on_delete=models.CASCADE, null=True, blank=True
     )
 
+    source_issue = models.ForeignKey(
+        GithubIssue, related_name='gists', on_delete=models.CASCADE, null=True, blank=True,
+        help_text='Issue from which this Gist was extracted, if any'
+    )
+    source_comment = models.ForeignKey(
+        GithubIssueComment, related_name='gists', on_delete=models.CASCADE, null=True, blank=True,
+        help_text='Comment from which this Gist was extracted, if any'
+    )
+    source_gist = models.ForeignKey(
+        'self', related_name='gists', on_delete=models.CASCADE, null=True, blank=True,
+        help_text='Gist from which this Gist was extracted, if any'
+    )
+
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
 
+    id_key = None
+
     obj_col_map = [
+        ColObjMap('gist_id', 'id'),
         ColObjMap('description', 'description', default=None),
         ColObjMap('public', 'public', default=False),
-        ColObjMap('owner', 'owner.login', converter=GithubUser.from_username),
+        ColObjMap('owner', 'owner.login', default=None, converter=GithubUser.from_username),
         ColObjMap('created_at', 'created_at'),
         ColObjMap('updated_at', 'updated_at'),
     ]
@@ -1228,14 +1248,43 @@ class GithubGist(GithubMixin[gh_api.Gist]):
         Returns a list of GithubGistFile instances.
         """
         files = self.gh_obj.files
-        files = progress_bar(
-            files, total=len(files),
-            description=f"Fetching files for Gist {self.id} ({self.description or 'No description'})"
-        )
+        # files = progress_bar(
+        #     files, total=len(files),
+        #     description=f"Fetching files for Gist {self.id} ({self.description or 'No description'})"
+        # )
         res = []
         for _, file_obj in files.items():
             gist_file = GithubGistFile.create_from_obj(file_obj, foreign={'gist': self})
             res.append(gist_file)
+        return res
+
+    def get_gh_obj(self):
+        """Get the GitHub Gist object using the provided GitHub instance."""
+        return gh_api.get_gh_main().get_gist(self.gist_id)
+
+    @classmethod
+    def from_id(
+            cls, gist_id: str, update: bool = False,
+            issue: GithubIssue = None,
+            comment: GithubIssueComment = None,
+            source_gist: 'GithubGist' = None
+        ) -> 'GithubGist':
+        """
+        Fetch a Gist by its ID.
+        Returns a GithubGist instance.
+        """
+        gist = gh_api.get_gh_main().get_gist(gist_id)
+        res = cls.create_from_obj(gist, update=update)
+
+        if issue:
+            res.source_issue = issue
+        if comment:
+            res.source_comment = comment
+        if source_gist:
+            res.source_gist = source_gist
+
+        res.save()
+
         return res
 
 class GithubGistFile(GithubMixin[gh_api.GistFile]):
