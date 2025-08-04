@@ -158,15 +158,12 @@ def sync_repo(
 @fetch.command()
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 @opt.SINCE_OPTION
-@click.option(
-    '--files/--no-files',
-    is_flag=True,
-    default=True,
-    help='Fetch files for commits.',
-)
+@opt.SINCE_NUMBER_OPTION
+@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
 def gists_from_issuecomments(
     gh_repo: m.GithubRepository,
     since: datetime = None,
+    since_number: int = None,
     files: bool = True,
 ):
     """Find gists URLs in commit messages and fetch them."""
@@ -177,6 +174,8 @@ def gists_from_issuecomments(
     query = gh_repo.issues
     if since:
         query = query.filter(updated_at__gte=since)
+    if since_number:
+        query = query.filter(number__gte=since_number)
 
     ids = []
     for issue in query.all():
