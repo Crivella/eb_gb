@@ -1,6 +1,7 @@
 """Fetch commands for the eb_gh_cli CLI."""
 import logging
 import re
+import time
 from datetime import datetime
 
 import django
@@ -18,6 +19,13 @@ from .main import fetch
 GIST_RGX = re.compile(r'https?://gist\.github\.com(?P<user>/[^/\n]+)?/(?P<id>[a-z0-9]+)(?:\#file-(?P<file>[^/\n]+))?')
 
 logger = logging.getLogger('gh_db')
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    lst = list(lst)  # Ensure lst is a list
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 
 @fetch.command()
@@ -155,16 +163,60 @@ def sync_repo(
                 progress_clean_tasks()
             click.echo(f'Updated {len(updated)} open pull requests.')
 
+
+def filter_gists(ids: set[str]) -> set[str]:
+    """Filter gists by their IDs, removing those that already exist in the database."""
+    existing_gists = set()
+    for chunk in chunks(ids, 1000):
+        # Use a set to avoid duplicates
+        existing_gists.update(m.GithubGist.objects.filter(gist_id__in=chunk).values_list('gist_id', flat=True))
+    ids = ids - existing_gists
+
+    return ids
+
+def fetch_gists(
+    ids: set[str],
+    iss_map: dict = None, cmt_map: dict = None, gst_map: dict = None,
+    delay: float = 2,
+    force: bool = False, files: bool = True
+) -> list[m.GithubGist]:
+    """Fetch gists by their IDs, optionally using maps for issues, comments, and source gists."""
+    iss_map = iss_map or {}
+    cmt_map = cmt_map or {}
+    gst_map = gst_map or {}
+
+    res = []
+    for gist_id in progress_bar(ids, description=f'Fetching {len(ids)} gists from issue-comments'):
+        issue = iss_map.get(gist_id, None)
+        comment = cmt_map.get(gist_id, None)
+        source_gist = gst_map.get(gist_id, None)
+        try:
+            gist = m.GithubGist.from_id(gist_id, issue=issue, comment=comment, source_gist=source_gist, update=force)
+            if files:
+                gist.fetch_files()
+        except gh_api.UnknownObjectException as e:
+            logger.warning(f'{issue} : {comment.url} : Gist `{gist_id}` not found: {e}')
+        except django.core.exceptions.ValidationError as e:
+            logger.error(f'{issue} : {comment.url} : Error fetching gist `{gist_id}`: {e}')
+        except Exception as e:
+            logger.error(f'{issue} : {comment.url} : Unexpected error fetching gist `{gist_id}`: {e}', exc_info=True)
+        else:
+            res.append(gist)
+            time.sleep(delay)
+    return res
+
 @fetch.command()
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 @opt.SINCE_OPTION
 @opt.SINCE_NUMBER_OPTION
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
+@click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
 def gists_from_issuecomments(
     gh_repo: m.GithubRepository,
     since: datetime = None,
     since_number: int = None,
     files: bool = True,
+    force: bool = True,
 ):
     """Find gists URLs in commit messages and fetch them."""
 
@@ -177,29 +229,78 @@ def gists_from_issuecomments(
     if since_number:
         query = query.filter(number__gte=since_number)
 
-    ids = []
+    ids = set()
+    ids_issue_map = {}
+    ids_comment_map = {}
     for issue in query.all():
         num_issues += 1
         for comment in issue.comments.all():
             num_comments += 1
             for mch in GIST_RGX.finditer(comment.body):
                 gist_id = mch.group('id')
-                ids.append((issue, comment, gist_id))
+                ids.add(gist_id)
+                ids_issue_map[gist_id] = issue
+                ids_comment_map[gist_id] = comment
 
     since_str = f">={since.strftime('%Y-%m-%d')}" if since else 'all'
     click.echo(f'{gh_repo} ({since_str}) : {num_issues} issues : {num_comments} comments : {len(ids)} gists.')
 
-    for issue, comment, gist_id in progress_bar(
-        ids,
-        description=f'Fetching {len(ids)} gists from issue-comments',
-    ):
-        try:
-            gist = m.GithubGist.from_id(gist_id, issue=issue, comment=comment)
-            if files:
-                gist.fetch_files()
-        except gh_api.UnknownObjectException as e:
-            logger.warning(f'{issue} : {comment.url} : Gist `{gist_id}` not found: {e}')
-        except django.core.exceptions.ValidationError as e:
-            logger.error(f'{issue} : {comment.url} : Error fetching gist `{gist_id}`: {e}')
-        except Exception as e:
-            logger.error(f'{issue} : {comment.url} : Unexpected error fetching gist `{gist_id}`: {e}', exc_info=True)
+    if not force:
+        before = len(ids)
+        ids = filter_gists(ids)
+        click.echo(f'Filtered {before - len(ids)} gists that already exist in the database.')
+
+    res = fetch_gists(ids, iss_map=ids_issue_map, cmt_map=ids_comment_map, force=force, files=files)
+
+    num_failed = len(ids) - len(res)
+    click.echo(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
+
+@fetch.command()
+# @click.argument('gh-repo', type=ct.GithubRepositoryType())
+@click.option('--gh-repo', type=ct.GithubRepositoryType(allow_new=True), help='GitHub repository to fetch gists from.')
+@opt.SINCE_OPTION
+@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
+@click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
+def gists_from_gists(
+    gh_repo: m.GithubRepository = None,
+    since: datetime = None,
+    files: bool = True,
+    force: bool = True,
+):
+    """Find gists URLs in commit messages and fetch them."""
+
+    repo_msg = 'all repositories' if gh_repo is None else f"repository {gh_repo.name}"
+    click.echo(f'Fetching gists from commits from {repo_msg}...')
+    query = m.GithubGist.objects
+    if gh_repo:
+        query = query.filter(source_issue__repository=gh_repo)
+    if since:
+        query = query.filter(updated_at__gte=since)
+
+    ids = set()
+    ids_gist_map = {}
+    for gist in query.all():
+        for file in gist.files.all():
+            fp = file.content
+            if not fp.name:
+                continue
+            fp.seek(0)
+            content = fp.read().decode('utf-8')
+            for mch in GIST_RGX.finditer(content):
+                gist_id = mch.group('id')
+                ids.add(gist_id)
+                ids_gist_map[gist_id] = gist
+
+    since_str = f">={since.strftime('%Y-%m-%d')}" if since else 'all'
+    repo_msg = f'{gh_repo}' if gh_repo else 'All repositories'
+    click.echo(f'{repo_msg} ({since_str}) : {len(ids)} gists found in files.')
+
+    if not force:
+        before = len(ids)
+        ids = filter_gists(ids)
+        click.echo(f'Filtered {before - len(ids)} gists that already exist in the database.')
+
+    res = fetch_gists(ids, gst_map=ids_gist_map, force=force, files=files)
+
+    num_failed = len(ids) - len(res)
+    click.echo(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
