@@ -1228,8 +1228,8 @@ class GithubGist(GithubMixin[gh_api.Gist]):
         help_text='Gist from which this Gist was extracted, if any'
     )
 
-    created_at = models.DateTimeField()
-    updated_at = models.DateTimeField()
+    created_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
 
     id_key = None
 
@@ -1248,10 +1248,6 @@ class GithubGist(GithubMixin[gh_api.Gist]):
         Returns a list of GithubGistFile instances.
         """
         files = self.gh_obj.files
-        # files = progress_bar(
-        #     files, total=len(files),
-        #     description=f"Fetching files for Gist {self.id} ({self.description or 'No description'})"
-        # )
         res = []
         for _, file_obj in files.items():
             gist_file = GithubGistFile.create_from_obj(file_obj, foreign={'gist': self})
@@ -1273,17 +1269,28 @@ class GithubGist(GithubMixin[gh_api.Gist]):
         Fetch a Gist by its ID.
         Returns a GithubGist instance.
         """
-        gist = gh_api.get_gh_main().get_gist(gist_id)
-        res = cls.create_from_obj(gist, update=update)
+        res = None
+        comment_url = f': {comment.url}' if comment else ''
+        try:
+            gist = gh_api.get_gh_main().get_gist(gist_id)
+        except gh_api.UnknownObjectException as e:
+            logger.warning(f'{issue} {comment_url} : Gist `{gist_id}` not found: {e}')
+            # If the gist does not exist, we create a placeholder object so that in the future
+            # they can be filtered out from queries as already attempted
+            res, _ = cls.objects.get_or_create(gist_id=gist_id)
+        except Exception as e:
+            logger.error(f'{issue} {comment_url} : Unexpected error fetching gist `{gist_id}`: {e}', exc_info=True)
+        else:
+            res = cls.create_from_obj(gist, update=update)
 
-        if issue:
-            res.source_issue = issue
-        if comment:
-            res.source_comment = comment
-        if source_gist:
-            res.source_gist = source_gist
-
-        res.save()
+        if res:
+            if issue:
+                res.source_issue = issue
+            if comment:
+                res.source_comment = comment
+            if source_gist:
+                res.source_gist = source_gist
+            res.save()
 
         return res
 

@@ -8,7 +8,6 @@ import django
 import django.core
 import django.core.exceptions
 
-from .. import gh_api
 from .. import models as m
 from ..progress import progress_bar, progress_clean_tasks
 from . import click
@@ -93,7 +92,12 @@ def comments_from_issue(gh_issue, verbose):
 @opt.FILTER_USER_OPTION
 # @opt.SINCE_OPTION
 @opt.SINCE_NUMBER_OPTION
-@click.option('--update-open', type=click.IntRange(min=1), help='Update open issues and PRs.')
+@click.option(
+    '--update-open',
+    is_flag=False, flag_value=1, default=None,
+    type=click.IntRange(min=1),
+    help='Update open issues and PRs.'
+)
 @click.option('--prs/--no-prs', is_flag=True, default=True, help='Fetch PRs as well.')
 @click.option('--commits/--no-commits', is_flag=True, default=True, help='Fetch commits for PRs.')
 @click.option(
@@ -167,7 +171,7 @@ def sync_repo(
 def filter_gists(ids: set[str]) -> set[str]:
     """Filter gists by their IDs, removing those that already exist in the database."""
     existing_gists = set()
-    for chunk in chunks(ids, 1000):
+    for chunk in chunks(ids, 5000):
         # Use a set to avoid duplicates
         existing_gists.update(m.GithubGist.objects.filter(gist_id__in=chunk).values_list('gist_id', flat=True))
     ids = ids - existing_gists
@@ -190,19 +194,12 @@ def fetch_gists(
         issue = iss_map.get(gist_id, None)
         comment = cmt_map.get(gist_id, None)
         source_gist = gst_map.get(gist_id, None)
-        try:
-            gist = m.GithubGist.from_id(gist_id, issue=issue, comment=comment, source_gist=source_gist, update=force)
+        gist = m.GithubGist.from_id(gist_id, issue=issue, comment=comment, source_gist=source_gist, update=force)
+        if gist:
             if files:
                 gist.fetch_files()
-        except gh_api.UnknownObjectException as e:
-            logger.warning(f'{issue} : {comment.url} : Gist `{gist_id}` not found: {e}')
-        except django.core.exceptions.ValidationError as e:
-            logger.error(f'{issue} : {comment.url} : Error fetching gist `{gist_id}`: {e}')
-        except Exception as e:
-            logger.error(f'{issue} : {comment.url} : Unexpected error fetching gist `{gist_id}`: {e}', exc_info=True)
-        else:
             res.append(gist)
-            time.sleep(delay)
+        time.sleep(delay)
     return res
 
 @fetch.command()
@@ -211,16 +208,18 @@ def fetch_gists(
 @opt.SINCE_NUMBER_OPTION
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
 @click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
+@click.option('--delay', type=float, default=2.0, help='Delay between fetching gists (in seconds).')
 def gists_from_issuecomments(
     gh_repo: m.GithubRepository,
     since: datetime = None,
     since_number: int = None,
     files: bool = True,
     force: bool = True,
+    delay: float = 2.0,
 ):
     """Find gists URLs in commit messages and fetch them."""
 
-    click.echo(f'Fetching gists from commits in repository {gh_repo.name}...')
+    click.echo(f'Canning gists from issuecomments from repository `{gh_repo.name}`...')
     num_issues = 0
     num_comments = 0
     query = gh_repo.issues
@@ -250,7 +249,7 @@ def gists_from_issuecomments(
         ids = filter_gists(ids)
         click.echo(f'Filtered {before - len(ids)} gists that already exist in the database.')
 
-    res = fetch_gists(ids, iss_map=ids_issue_map, cmt_map=ids_comment_map, force=force, files=files)
+    res = fetch_gists(ids, iss_map=ids_issue_map, cmt_map=ids_comment_map, force=force, files=files, delay=delay)
 
     num_failed = len(ids) - len(res)
     click.echo(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
@@ -261,16 +260,18 @@ def gists_from_issuecomments(
 @opt.SINCE_OPTION
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
 @click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
+@click.option('--delay', type=float, default=2.0, help='Delay between fetching gists (in seconds).')
 def gists_from_gists(
     gh_repo: m.GithubRepository = None,
     since: datetime = None,
     files: bool = True,
     force: bool = True,
+    delay: float = 2.0,
 ):
     """Find gists URLs in commit messages and fetch them."""
 
     repo_msg = 'all repositories' if gh_repo is None else f"repository {gh_repo.name}"
-    click.echo(f'Fetching gists from commits from {repo_msg}...')
+    click.echo(f'Scanning gists for gists from repository `{repo_msg}`...')
     query = m.GithubGist.objects
     if gh_repo:
         query = query.filter(source_issue__repository=gh_repo)
@@ -295,12 +296,13 @@ def gists_from_gists(
     repo_msg = f'{gh_repo}' if gh_repo else 'All repositories'
     click.echo(f'{repo_msg} ({since_str}) : {len(ids)} gists found in files.')
 
+
     if not force:
         before = len(ids)
         ids = filter_gists(ids)
         click.echo(f'Filtered {before - len(ids)} gists that already exist in the database.')
 
-    res = fetch_gists(ids, gst_map=ids_gist_map, force=force, files=files)
+    res = fetch_gists(ids, gst_map=ids_gist_map, force=force, files=files, delay=delay)
 
     num_failed = len(ids) - len(res)
     click.echo(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
