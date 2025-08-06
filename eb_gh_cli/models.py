@@ -113,7 +113,6 @@ class GithubMixin(models.Model, Generic[O]):
     def get_autocomplete_string(self) -> str:
         """
         Return a string representation for autocomplete purposes.
-        This should be overridden in subclasses to provide meaningful information.
         """
         raise self.DoesNotSupportDirectCreation(
             f"{self.__class__.__name__}.get_autocomplete_string must be implemented."
@@ -123,7 +122,6 @@ class GithubMixin(models.Model, Generic[O]):
     def autocomplete_string_to_dct(cls, autocomplete_string: str) -> dict:
         """
         Convert an autocomplete string to a dictionary.
-        This should be overridden in subclasses to parse the string correctly.
         """
         raise cls.DoesNotSupportDirectCreation(
             f"{cls.__class__.__name__}.autocomplete_string_to_dct must be implemented."
@@ -133,7 +131,6 @@ class GithubMixin(models.Model, Generic[O]):
     def filter_autocomplete_string(cls, autocomplete_string: str) -> models.Q:
         """
         Filter instances based on an autocomplete string.
-        This method should be overridden in subclasses to handle specific filtering logic.
         """
         raise cls.DoesNotSupportDirectCreation(
             f"{cls.__class__.__name__}.filter_autocomplete_string must be implemented."
@@ -143,7 +140,6 @@ class GithubMixin(models.Model, Generic[O]):
     def create_from_dct(cls, dct: dict, *, update: bool = False) -> Self:
         """
         Create a new instance from the provided keyword arguments.
-        This method should be overridden in subclasses to handle specific creation logic.
         """
         raise cls.DoesNotSupportDirectCreation(f"{cls.__name__}.create_from_dct must be implemented.")
 
@@ -151,7 +147,6 @@ class GithubMixin(models.Model, Generic[O]):
     def create_from_obj(cls, obj, **kwargs) -> Self:
         """
         Create an instance from a GitHub object.
-        This method should be overridden in subclasses to handle specific object creation logic.
         """
         update = kwargs.pop('update', False)
         foreign = kwargs.pop('foreign', None) or {}
@@ -218,7 +213,6 @@ class GithubMixin(models.Model, Generic[O]):
     def get_gh_obj(self) -> O:
         """
         Fetch the GitHub object associated with this instance.
-        This method should be overridden in subclasses to fetch the appropriate GitHub object.
         """
         raise self.DoesNotSupportDirectCreation(f"{self.__class__.__name__}.get_gh_obj must be implemented.")
 
@@ -347,7 +341,6 @@ class GithubRepository(GithubMixin[gh_api.Repository]):
     def get_autocomplete_string(self) -> str:
         """
         Return a string representation for autocomplete purposes.
-        This should be overridden in subclasses to provide meaningful information.
         """
         return f"{self.owner.username}/{self.name}"
 
@@ -365,7 +358,6 @@ class GithubRepository(GithubMixin[gh_api.Repository]):
     def filter_autocomplete_string(cls, autocomplete_string: str) -> models.Q:
         """
         Filter repositories based on an autocomplete string.
-        This method should be overridden in subclasses to handle specific filtering logic.
         """
         owner, name = (autocomplete_string.split('/') + [''])[:2]
         res = models.Q(owner__username__istartswith=owner)
@@ -743,7 +735,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
     """Model representing a GitHub commit."""
     class Meta:
         unique_together = ('repository', 'sha')
-    sha = models.CharField(max_length=40, unique=True)
+    sha = models.CharField(max_length=40)
     message = models.TextField(blank=True, null=True)
     author = models.ForeignKey(
         GithubUser, related_name='authored_commits', on_delete=models.CASCADE, null=True, blank=True
