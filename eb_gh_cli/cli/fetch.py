@@ -196,7 +196,7 @@ def fetch_gists(
         source_gist = gst_map.get(gist_id, None)
         gist = m.GithubGist.from_id(gist_id, issue=issue, comment=comment, source_gist=source_gist, update=force)
         if gist:
-            if files:
+            if gist.url and files:  # URL is set if the gist was fetched successfully
                 gist.fetch_files()
             res.append(gist)
         time.sleep(delay)

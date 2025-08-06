@@ -1247,7 +1247,11 @@ class GithubGist(GithubMixin[gh_api.Gist]):
         Fetch all files associated with this Gist.
         Returns a list of GithubGistFile instances.
         """
-        files = self.gh_obj.files
+        try:
+            files = self.gh_obj.files
+        except gh_api.UnknownObjectException:
+            logger.warning(f"Gist {self.gist_id} not found or has no files.")
+            return []
         res = []
         for _, file_obj in files.items():
             gist_file = GithubGistFile.create_from_obj(file_obj, foreign={'gist': self})
