@@ -194,9 +194,21 @@ class GithubMixin(models.Model, Generic[O]):
             logger.error(f"Open files: \n{data.decode('utf-8')}")
             sys.exit(1)
         except django.db.utils.IntegrityError as e:
-            logger.error(f"Integrity error while creating {cls.__name__} instance: {e}", exc_info=True)
-            logger.error(f'Create keys: {create_keys}, defaults: {defaults}')
-            sys.exit(1)
+            if cls.objects.filter(gh_id=gh_id).exists():
+                obj = cls.objects.get(gh_id=gh_id)
+            if obj.url.lower() == url.lower():
+                logger.warning(
+                    f"URL case mismatch for {cls.__name__} with gh_id={gh_id}: '{obj.url}' vs '{url}'. Updating URL."
+                )
+                obj.url = url
+                if update:
+                    for key, val in defaults.items():
+                        setattr(obj, key, val)
+                obj.save()
+            else:
+                logger.error(f"Integrity error while creating {cls.__name__} instance: {e}", exc_info=True)
+                logger.error(f'Create keys: {create_keys}, defaults: {defaults}')
+                sys.exit(1)
         if created:
             logger.debug(f"Created new {cls.__name__} instance: {res}")
         elif update:
