@@ -1,7 +1,6 @@
 """Fetch commands for the eb_gh_cli CLI."""
 import logging
 import re
-import time
 from datetime import datetime
 
 import django
@@ -190,7 +189,7 @@ def fetch_gists(
     gst_map = gst_map or {}
 
     res = []
-    for gist_id in progress_bar(ids, description=f'Fetching {len(ids)} gists from issue-comments'):
+    for gist_id in progress_bar(ids, description=f'Fetching {len(ids)} gists from issue-comments', delay=delay):
         issue = iss_map.get(gist_id, None)
         comment = cmt_map.get(gist_id, None)
         source_gist = gst_map.get(gist_id, None)
@@ -199,7 +198,7 @@ def fetch_gists(
             if gist.url and files:  # URL is set if the gist was fetched successfully
                 gist.fetch_files()
             res.append(gist)
-        time.sleep(delay)
+        # time.sleep(delay)
     return res
 
 @fetch.command()
@@ -219,7 +218,7 @@ def gists_from_issuecomments(
 ):
     """Find gists URLs in commit messages and fetch them."""
 
-    click.echo(f'Canning gists from issuecomments from repository `{gh_repo.name}`...')
+    logger.info(f'Scanning gists from issuecomments from repository `{gh_repo.name}`...')
     num_issues = 0
     num_comments = 0
     query = gh_repo.issues
@@ -242,17 +241,17 @@ def gists_from_issuecomments(
                 ids_comment_map[gist_id] = comment
 
     since_str = f">={since.strftime('%Y-%m-%d')}" if since else 'all'
-    click.echo(f'{gh_repo} ({since_str}) : {num_issues} issues : {num_comments} comments : {len(ids)} gists.')
+    logger.info(f'{gh_repo} ({since_str}) : {num_issues} issues : {num_comments} comments : {len(ids)} gists.')
 
     if not force:
         before = len(ids)
         ids = filter_gists(ids)
-        click.echo(f'Filtered {before - len(ids)} gists that already exist in the database.')
+        logger.info(f'Filtered {before - len(ids)} gists that already exist in the database.')
 
     res = fetch_gists(ids, iss_map=ids_issue_map, cmt_map=ids_comment_map, force=force, files=files, delay=delay)
 
     num_failed = len(ids) - len(res)
-    click.echo(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
+    logger.info(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
 
 @fetch.command()
 # @click.argument('gh-repo', type=ct.GithubRepositoryType())
@@ -271,7 +270,7 @@ def gists_from_gists(
     """Find gists URLs in commit messages and fetch them."""
 
     repo_msg = 'all repositories' if gh_repo is None else f"repository {gh_repo.name}"
-    click.echo(f'Scanning gists for gists from repository `{repo_msg}`...')
+    logger.info(f'Scanning gists for gists from repository `{repo_msg}`...')
     query = m.GithubGist.objects
     if gh_repo:
         query = query.filter(source_issue__repository=gh_repo)
@@ -281,12 +280,12 @@ def gists_from_gists(
     ids = set()
     ids_gist_map = {}
     for gist in query.all():
-        for file in gist.files.all():
-            fp = file.content
-            if not fp.name:
+        for gist_file in gist.files.all():
+            file = gist_file.content
+            if not file.name:
                 continue
-            fp.seek(0)
-            content = fp.read().decode('utf-8')
+            with file.open() as fp:
+                content = fp.read().decode('utf-8')
             for mch in GIST_RGX.finditer(content):
                 gist_id = mch.group('id')
                 ids.add(gist_id)
@@ -294,15 +293,15 @@ def gists_from_gists(
 
     since_str = f">={since.strftime('%Y-%m-%d')}" if since else 'all'
     repo_msg = f'{gh_repo}' if gh_repo else 'All repositories'
-    click.echo(f'{repo_msg} ({since_str}) : {len(ids)} gists found in files.')
+    logger.info(f'{repo_msg} ({since_str}) : {len(ids)} gists found in files.')
 
 
     if not force:
         before = len(ids)
         ids = filter_gists(ids)
-        click.echo(f'Filtered {before - len(ids)} gists that already exist in the database.')
+        logger.info(f'Filtered {before - len(ids)} gists that already exist in the database.')
 
     res = fetch_gists(ids, gst_map=ids_gist_map, force=force, files=files, delay=delay)
 
     num_failed = len(ids) - len(res)
-    click.echo(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
+    logger.info(f'Fetched {len(res)} gists from {gh_repo} ({since_str}) with {num_failed} failed/not-found.')
