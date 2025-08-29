@@ -1124,7 +1124,7 @@ class GithubPRReview(GithubMixin[gh_api.PullRequestReview]):
         ('DISMISSED', 'Dismissed')
     ], default='COMMENTED')
 
-    submitted_at = models.DateTimeField()
+    submitted_at = models.DateTimeField(null=True, blank=True)
 
     obj_col_map = [
         ColObjMap('body', 'body'),
