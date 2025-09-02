@@ -22,10 +22,8 @@ else:
     atexit.register(ACTIVE_PROGRESS.stop)
     HAVE_RICH = True
 
-def delayed_iter(iterable, delay=None):  # pylint: disable=inconsistent-return-statements
+def delayed_iter(iterable, delay=None):
     """Add a delay to fetching elements of an iterable"""
-    if delay is None:
-        return iterable
     for item in iterable:
         yield item
         time.sleep(delay)
@@ -41,7 +39,8 @@ def progress_bar(
 
     ACTIVE_PROGRESS.start()
 
-    iterable = delayed_iter(iterable=iterable, delay=delay)
+    if delay is not None and delay > 0:
+        iterable = delayed_iter(iterable=iterable, delay=delay)
 
     return ACTIVE_PROGRESS.track(
         iterable, total=total,
