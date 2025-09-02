@@ -18,7 +18,11 @@ from . import options as opt
 from .main import stats
 
 
-def user_pr_issue_stats(qparam: str, repository: m.GithubRepository, since: datetime = None, limit: int = None):
+def user_pr_issue_stats(
+        qparam: str, repository: m.GithubRepository,
+        since: datetime = None, upto: datetime = None,
+        limit: int = None
+    ):
     """Get user PR and issue stats."""
     q = m.GithubUser.objects
     cnt_flt = dmod.Q(**{f'{qparam}__repository': repository})
@@ -26,6 +30,10 @@ def user_pr_issue_stats(qparam: str, repository: m.GithubRepository, since: date
         key = qparam.split('_')[0]
         key += '_at'
         cnt_flt &= dmod.Q(**{f'{qparam}__{key}__gte': since})
+    if upto:
+        key = qparam.split('_')[0]
+        key += '_at'
+        cnt_flt &= dmod.Q(**{f'{qparam}__{key}__lte': upto})
     q = q.annotate(
         count=dmod.Count(
             qparam,
@@ -53,46 +61,51 @@ def user_pr_issue_stats(qparam: str, repository: m.GithubRepository, since: date
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
-def repo_pr_mergers(gh_repo: m.GithubRepository, since, limit):
+@opt.UPTO_OPTION
+def repo_pr_mergers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top PR mergers for a GitHub repository."""
     click.echo(f'Fetching PR mergers for {gh_repo.name} since {since} {type(since)}.')
-    user_pr_issue_stats('merged_pull_requests', gh_repo, since=since, limit=limit)
+    user_pr_issue_stats('merged_pull_requests', gh_repo, since=since, upto=upto, limit=limit)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
-def repo_pr_creators(gh_repo: m.GithubRepository, since, limit):
+@opt.UPTO_OPTION
+def repo_pr_creators(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top PR creators for a GitHub repository."""
-    user_pr_issue_stats('created_pull_requests', gh_repo, since=since, limit=limit)
+    user_pr_issue_stats('created_pull_requests', gh_repo, since=since, upto=upto, limit=limit)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
-def repo_issue_creators(gh_repo: m.GithubRepository, since, limit):
+@opt.UPTO_OPTION
+def repo_issue_creators(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top issue creators for a GitHub repository."""
-    user_pr_issue_stats('created_issues', gh_repo, since=since, limit=limit)
+    user_pr_issue_stats('created_issues', gh_repo, since=since, upto=upto, limit=limit)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
-def repo_issue_closers(gh_repo: m.GithubRepository, since, limit):
+def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top issue closers for a GitHub repository."""
-    user_pr_issue_stats('closed_issues', gh_repo, since=since, limit=limit)
+    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
+@opt.UPTO_OPTION
 def pr_plot(gh_repo: m.GithubRepository):
     """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
     if not HAVE_MATPLOTLIB:
         click.echo('Matplotlib is not installed, cannot plot PR stats.')
         return
-    q = m.GithubPullRequest.objects.filter(repository=gh_repo).all()
+    q = gh_repo.pull_requests.all()
     if not q:
         click.echo(f'No pull requests found for repository {gh_repo.name}.')
         return
+    click.echo(f'Found {len(q)} pull requests for repository {gh_repo.name}.')
 
     created_dates = [pr.created_at.date() for pr in q]
     merged_dates = [pr.merged_at.date() for pr in q if pr.merged_at]
@@ -146,7 +159,7 @@ def issue_plot(gh_repo: m.GithubRepository):
     if not HAVE_MATPLOTLIB:
         click.echo('Matplotlib is not installed, cannot plot PR stats.')
         return
-    q = m.GithubIssue.objects.filter(repository=gh_repo).all()
+    q = gh_repo.issues.filter(is_pr=False).all()
     if not q:
         click.echo(f'No pull requests found for repository {gh_repo.name}.')
         return

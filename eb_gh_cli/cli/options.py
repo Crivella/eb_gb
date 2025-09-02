@@ -48,6 +48,15 @@ SINCE_OPTION = click.option(
     # callback=register_hidden_param
 )
 
+UPTO_OPTION = click.option(
+    '--upto',
+    type=click.DateTime(),
+    default=None,
+    help='Filter results up to this date (inclusive)',
+    # expose_value=False,
+    # callback=register_hidden_param
+)
+
 SINCE_NUMBER_OPTION = click.option(
     '--since-number',
     type=click.IntRange(min=1),
