@@ -12,7 +12,7 @@ from django.core.files.base import ContentFile
 from django.db import models
 
 from . import gh_api
-from .progress import progress_bar, progress_clean_tasks
+from .progress import progress_bar, progress_bar_level_inc
 
 O = TypeVar('O', bound=gh_api.GithubObject)
 
@@ -602,57 +602,58 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
 
         iterator = progress_bar(
             range(since_number, last_issue_num + 1),
+            total=(last_issue_num - since_number + 1),
             description=f"Fetching issues from {repository} since #{since_number}",
         )
         for issue_number in iterator:
-            try:
-                issue = repo.get_issue(number=issue_number)
-            except gh_api.UnknownObjectException:
-                logger.warning(f"Issue #{issue_number} not found in {repository}. Skipping.")
-                continue
-            except Exception as e:
-                logger.error(f"Error fetching issue #{issue_number}: {e}", exc_info=True)
-                continue
-            try:
-                remote_repo_name = issue.repository.name
-                remote_repo_inum = issue.number
-            except Exception as e:
-                logger.error(f"Error accessing issue repository or number: {e}", exc_info=True)
-                continue
-            if repo.name != remote_repo_name or issue_number != remote_repo_inum:
-                logger.info(
-                    f'Issue mismatch: requested = {repo.owner.login}/{repo.name}#{issue_number}, '
-                    f'got = {issue.repository.owner.login}/{issue.repository.name}#{issue.number}\n'
-                    'Probably due to a redirect/transfered issue... Skipping.'
-                )
-                continue
-            try:
-                issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
-                issue_obj.get_assignes()
-
-                if do_comments:
-                    issue_obj.get_comments()
-            except Exception as e:
-                logger.error(f"Error processing issue #{issue_number}: {e}", exc_info=True)
-                sys.exit(1)
-
-            res.append(issue_obj)
-            if do_prs and issue.pull_request:
+            with progress_bar_level_inc():
                 try:
-                    pr_obj = GithubPullRequest.from_number(
-                        repository=repository, number=issue_number, update=update
-                    )
-                    pr_obj.get_assignes()
-                    if do_comments:
-                        pr_obj.get_reviews()
-                    if do_files:
-                        pr_obj.get_files()
-                    if do_commits:
-                        pr_obj.get_commits(do_files=do_files)
+                    issue = repo.get_issue(number=issue_number)
+                except gh_api.UnknownObjectException:
+                    logger.warning(f"Issue #{issue_number} not found in {repository}. Skipping.")
+                    continue
                 except Exception as e:
-                    logger.error(f"Error processing PR for issue #{issue_number}: {e}", exc_info=True)
+                    logger.error(f"Error fetching issue #{issue_number}: {e}", exc_info=True)
+                    continue
+                try:
+                    remote_repo_name = issue.repository.name
+                    remote_repo_inum = issue.number
+                except Exception as e:
+                    logger.error(f"Error accessing issue repository or number: {e}", exc_info=True)
+                    continue
+                if repo.name != remote_repo_name or issue_number != remote_repo_inum:
+                    logger.info(
+                        f'Issue mismatch: requested = {repo.owner.login}/{repo.name}#{issue_number}, '
+                        f'got = {issue.repository.owner.login}/{issue.repository.name}#{issue.number}\n'
+                        'Probably due to a redirect/transfered issue... Skipping.'
+                    )
+                    continue
+                try:
+                    issue_obj = cls.create_from_obj(issue, foreign={'repository': repository}, update=update)
+                    issue_obj.get_assignes()
+
+                    if do_comments:
+                        issue_obj.get_comments()
+                except Exception as e:
+                    logger.error(f"Error processing issue #{issue_number}: {e}", exc_info=True)
                     sys.exit(1)
-            progress_clean_tasks()
+
+                res.append(issue_obj)
+                if do_prs and issue.pull_request:
+                    try:
+                        pr_obj = GithubPullRequest.from_number(
+                            repository=repository, number=issue_number, update=update
+                        )
+                        pr_obj.get_assignes()
+                        if do_comments:
+                            pr_obj.get_reviews()
+                        if do_files:
+                            pr_obj.get_files()
+                        if do_commits:
+                            pr_obj.get_commits(do_files=do_files)
+                    except Exception as e:
+                        logger.error(f"Error processing PR for issue #{issue_number}: {e}", exc_info=True)
+                        sys.exit(1)
         return res
 
     def update(self) -> Self | None:
@@ -687,6 +688,8 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
             logger.info(f"Updated Issue #{new.number}: {', '.join(msg)}")
 
             return new
+
+        logger.debug(f"Issue #{self.number} is already up-to-date.")
         return None
 
     def get_comments(self) -> list['GithubIssueComment']:
@@ -696,7 +699,7 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
         """
         comments = self.gh_obj.get_comments()
         comments = progress_bar(
-            comments, total=comments.totalCount, description=f"-- Fetching comments for Issue#{self.number}"
+            comments, total=comments.totalCount, description=f"Fetching comments for Issue#{self.number}"
         )
 
         res = []
@@ -808,7 +811,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
             return []
         files = progress_bar(
             files, total=total,
-            description=f"-- Fetching files for Commit {self.sha[:8]} in {self.repository.name}"
+            description=f"Fetching files for Commit {self.sha[:8]} in {self.repository.name}"
         )
 
         res = []
@@ -826,7 +829,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
         parents = self.gh_obj.parents
         parents = progress_bar(
             parents, total=len(parents),
-            description=f"-- Fetching parents for Commit {self.sha[:8]} in {self.repository.name}"
+            description=f"Fetching parents for Commit {self.sha[:8]} in {self.repository.name}"
         )
 
         res = []
@@ -1034,7 +1037,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         reviews = self.gh_obj.get_reviews()
         reviews = progress_bar(
             reviews, total=reviews.totalCount,
-            description=f"-- Fetching reviews for PR#{self.number}"
+            description=f"Fetching reviews for PR#{self.number}"
         )
         res = []
         reviewers = []
@@ -1067,7 +1070,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
             total = 3000
         files = progress_bar(
             files, total=total,
-            description=f"-- Fetching files for PR#{self.number}"
+            description=f"Fetching files for PR#{self.number}"
         )
         res = []
         try:
@@ -1083,16 +1086,17 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         commits = self.gh_obj.get_commits()
         commits = progress_bar(
             commits, total=commits.totalCount,
-            description=f"-- Fetching commits for PR#{self.number}"
+            description=f"Fetching commits for PR#{self.number}"
         )
 
         res = []
         for commit in commits:
-            commit_obj = GithubCommit.create_from_obj(commit, foreign={'repository': self.repository})
-            res.append(commit_obj)
-            commit_obj.get_parents()  # Fetch parent commits
-            if do_files:
-                commit_obj.get_files(pull_request=self)
+            with progress_bar_level_inc():
+                commit_obj = GithubCommit.create_from_obj(commit, foreign={'repository': self.repository})
+                res.append(commit_obj)
+                commit_obj.get_parents()  # Fetch parent commits
+                if do_files:
+                    commit_obj.get_files(pull_request=self)
 
         self.update_related('commits', res)
         return res

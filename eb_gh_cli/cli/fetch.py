@@ -8,7 +8,7 @@ import django.core
 import django.core.exceptions
 
 from .. import models as m
-from ..progress import progress_bar, progress_clean_tasks
+from ..progress import progress_bar, progress_bar_level_inc
 from . import click
 from . import click_types as ct
 from . import options as opt
@@ -123,9 +123,9 @@ def sync_repo(
             since_number=since_number,
             do_prs=prs, do_comments=comments, do_files=files, do_commits=commits
         )
-        click.echo(f'New Issues fetched: {len(issue_lst)}')
+        logger.info(f'New Issues fetched: {len(issue_lst)}')
     except django.core.exceptions.ValidationError as e:
-        click.echo(f'Error creating issue: {e}')
+        logger.warning(f'Error creating issue: {e}')
 
     if update_open:
         # Avoid updating issues that were just fetched
@@ -138,15 +138,16 @@ def sync_repo(
         open_issues = q.all()
         open_issues = progress_bar(
             open_issues,
+            total=len(open_issues),
             description=f'Updating {len(open_issues)} open issues',
         )
         updated = []
         for issue in open_issues:
-            new = issue.update()
-            if new:
-                updated.append(new)
-            progress_clean_tasks()
-        click.echo(f'Updated {len(updated)} open issues.')
+            with progress_bar_level_inc():
+                new = issue.update()
+                if new:
+                    updated.append(new)
+        logger.info(f'Updated {len(updated)} open issues.')
 
         if prs:
             q = gh_repo.pull_requests
@@ -156,15 +157,16 @@ def sync_repo(
             open_prs = q.all()
             open_prs = progress_bar(
                 open_prs,
+                total=len(open_prs),
                 description=f'Updating {len(open_prs)} open pull requests',
             )
             updated = []
             for pr in open_prs:
-                new = pr.update()
-                if new:
-                    updated.append(new)
-                progress_clean_tasks()
-            click.echo(f'Updated {len(updated)} open pull requests.')
+                with progress_bar_level_inc():
+                    new = pr.update()
+                    if new:
+                        updated.append(new)
+            logger.info(f'Updated {len(updated)} open pull requests.')
 
 
 def filter_gists(ids: set[str]) -> set[str]:
