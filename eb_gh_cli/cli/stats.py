@@ -95,7 +95,6 @@ def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
-@opt.UPTO_OPTION
 def pr_plot(gh_repo: m.GithubRepository):
     """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
     if not HAVE_MATPLOTLIB:
