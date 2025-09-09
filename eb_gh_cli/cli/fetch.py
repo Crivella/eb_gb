@@ -204,14 +204,15 @@ def fetch_gists(
     return res
 
 @fetch.command()
-@click.argument('gh-repo', type=ct.GithubRepositoryType())
+# @click.argument('gh-repo', type=ct.GithubRepositoryType())
 @opt.SINCE_OPTION
 @opt.SINCE_NUMBER_OPTION
+@click.option('--gh-repo', type=ct.GithubRepositoryType(allow_new=False), help='GitHub repository to fetch gists from.')
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
 @click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
 @click.option('--delay', type=float, default=2.0, help='Delay between fetching gists (in seconds).')
 def gists_from_issuecomments(
-    gh_repo: m.GithubRepository,
+    gh_repo: m.GithubRepository = None,
     since: datetime = None,
     since_number: int = None,
     files: bool = True,
@@ -219,15 +220,25 @@ def gists_from_issuecomments(
     delay: float = 2.0,
 ):
     """Find gists URLs in commit messages and fetch them."""
-
-    logger.info(f'Scanning gists from issuecomments from repository `{gh_repo.name}`...')
-    num_issues = 0
-    num_comments = 0
-    query = gh_repo.issues
+    query = m.GithubIssue.objects
+    msg = ['Scanning gists from issuecomments from']
+    if gh_repo:
+        msg.append(f'repository {gh_repo.name}')
+        query = query.filter(repository=gh_repo)
+    else:
+        msg.append('all repositories')
     if since:
+        msg.append(f'(since {since})')
         query = query.filter(updated_at__gte=since)
     if since_number:
+        msg.append(f'(since number {since_number})')
         query = query.filter(number__gte=since_number)
+
+    msg = ' '.join(msg)
+    logger.info(msg)
+
+    num_issues = 0
+    num_comments = 0
 
     ids = set()
     ids_issue_map = {}
@@ -257,7 +268,7 @@ def gists_from_issuecomments(
 
 @fetch.command()
 # @click.argument('gh-repo', type=ct.GithubRepositoryType())
-@click.option('--gh-repo', type=ct.GithubRepositoryType(allow_new=True), help='GitHub repository to fetch gists from.')
+@click.option('--gh-repo', type=ct.GithubRepositoryType(allow_new=False), help='GitHub repository to fetch gists from.')
 @opt.SINCE_OPTION
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
 @click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
