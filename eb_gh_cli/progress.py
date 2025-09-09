@@ -59,15 +59,14 @@ def progress_bar(
 
     ACTIVE_PROGRESS.start()
 
+    kwargs['total'] = total or len(iterable)
+
     if delay is not None and delay > 0:
         iterable = delayed_iter(iterable=iterable, delay=delay)
 
     description = '| ' * PROGRESS_BAR_LEVEL + (description or 'Working')
 
-    return ACTIVE_PROGRESS.track(
-        iterable, total=total,
-        description=description, **kwargs
-    )
+    return ACTIVE_PROGRESS.track(iterable, description=description, **kwargs)
 
 def progress_clean_tasks():
     """Cleanup the progress bar."""
