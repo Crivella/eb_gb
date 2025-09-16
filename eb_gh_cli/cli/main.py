@@ -26,6 +26,11 @@ def migrate():
 def fetch():
     """Fetch data from GitHub."""
 
+
+@eb_gh_cli.group()
+def maint():
+    """Perform maintenance operations on the database."""
+
 @eb_gh_cli.group()
 def show():
     """Show  data from GitHub."""

@@ -14,6 +14,6 @@ else:
         suppress=[click, original_click],
     )
 
-from . import fetch, show, stats
+from . import fetch, maintain, show, stats
 from .eb_cmd import *
 from .main import eb_gh_cli

@@ -794,7 +794,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
             if total > LIMIT_REJECTED_PRFILES and pull_request.is_closed and not pull_request.is_merged:
                 logger.warning(
                     f"Commit {self.sha[:8]} has {total} files changed, "
-                    'and is closed but not merged. Skipping files...'
+                    'and belongs to a pr closed but not merged. Skipping files...'
                 )
                 return []
         if total >= 3000:
