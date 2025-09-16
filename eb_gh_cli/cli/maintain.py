@@ -99,14 +99,22 @@ def prune_commits_unreferenced(gh_repo: m.GithubRepository = None):
         commit.delete()
 
 @maint.command()
-@click.option('--gh-repo', type=ct.GithubRepositoryType(allow_new=False), help='GitHub repository to fetch gists from.')
+@click.argument('regex', type=str, default=r'^Merge branch ')
 @click.option(
-    '--regex', type=str, default=r'^Merge branch ',
-    help='Regex to match commit messages to prune. Default: "^Merge branch "'
+    '--gh-repo', type=ct.GithubRepositoryType(allow_new=False),
+    help='GitHub repository to fetch gists from.'
+)
+@click.option(
+    '--limit', type=int, default=20,
+    help='Minimum number of files a commit must have to be pruned. Default: 20'
 )
 @file_deletion_watcher
-def prune_commits_merge(regex: str, gh_repo: m.GithubRepository = None):
-    """Prune commits that are not referenced by any Github PR, File, child_commits objects."""
+def prune_commits_regex(
+        regex: str,
+        limit: int = 20,
+        gh_repo: m.GithubRepository = None
+    ):
+    """Prune commits based on a regex for their message and the amount of files contained in them."""
     q = m.GithubCommit.objects
     if gh_repo:
         q = q.filter(repository=gh_repo)
@@ -116,7 +124,7 @@ def prune_commits_merge(regex: str, gh_repo: m.GithubRepository = None):
     )
 
     q = q.filter(
-        dmod.Q(file_count__gte=20),
+        dmod.Q(file_count__gte=limit),
         dmod.Q(message__regex=regex),
     )
 
