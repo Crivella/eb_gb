@@ -59,7 +59,12 @@ def progress_bar(
 
     ACTIVE_PROGRESS.start()
 
-    kwargs['total'] = total or len(iterable)
+    if not total:
+        try:
+            total = len(iterable)
+        except TypeError:
+            total = None
+    kwargs['total'] = total
 
     if delay is not None and delay > 0:
         iterable = delayed_iter(iterable=iterable, delay=delay)
@@ -73,7 +78,7 @@ def progress_clean_tasks():
     if not HAVE_RICH:
         return
     for task in ACTIVE_PROGRESS.tasks:
-        if task.completed == task.total:
+        if task.completed == task.total or task.total is None:
             ACTIVE_PROGRESS.remove_task(task.id)
         # else:
         #     ACTIVE_PROGRESS.console.print(
