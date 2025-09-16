@@ -51,7 +51,9 @@ class DOSStorage(Storage):
 
     def delete(self, name: str):
         """Delete the file from the storage."""
-        raise NotImplementedError('Deletion is not supported in DOSStorage.')
+        with self.container as container:
+            if container.has_object(name):
+                container.delete_objects([name])
 
     def url(self, name: str) -> str:
         """Return the URL to access the file."""
