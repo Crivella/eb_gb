@@ -1,4 +1,5 @@
 """Fetch commands for the eb_gh_cli CLI."""
+from django.db import connection
 from django.db import models as dmod
 
 from .. import models as m
@@ -105,3 +106,10 @@ def prune_files_unreferenced():
         return
 
     raise NotImplementedError('File pruning not implemented yet.')
+
+@maint.command()
+def vacuum():
+    """Vacuum the database."""
+    with connection.cursor() as cursor:
+        cursor.execute('VACUUM;')
+    click.echo('Database vacuumed.')
