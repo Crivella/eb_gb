@@ -993,6 +993,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
             prev_num_files = self.files.count()
             prev_num_assignees = self.assignees.count()
             prev_num_reviews = self.reviews.count()
+            prev_files_hases = set(self.files.values_list('sha', flat=True))
 
             new = self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
             new.get_assignes()
@@ -1002,10 +1003,13 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
             post_num_files = new.files.count()
             post_num_assignees = new.assignees.count()
             post_num_reviews = new.reviews.count()
+            post_files_hases = set(new.files.values_list('sha', flat=True))
 
             msg = []
             if post_num_files != prev_num_files:
                 msg.append(f"#Files: {prev_num_files} -> {post_num_files}")
+            elif post_files_hases != prev_files_hases:
+                msg.append('#Files: (changed content)')
             if post_num_assignees != prev_num_assignees:
                 msg.append(f"#Assignees: {prev_num_assignees} -> {post_num_assignees}")
             if post_num_reviews != prev_num_reviews:
