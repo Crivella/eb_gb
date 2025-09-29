@@ -35,6 +35,15 @@ except ValueError:
         'Defaulting to 100.'
     )
     LIMIT_REJECTED_PRFILES = 100
+LIMIT_REJECTED_PRCOMMITS = os.environ.get('LIMIT_REJECTED_PRCOMMITS', 10)
+try:
+    LIMIT_REJECTED_PRCOMMITS = int(LIMIT_REJECTED_PRCOMMITS)
+except ValueError:
+    logger.error(
+        f'LIMIT_REJECTED_PRCOMMITS environment variable is not an integer: {LIMIT_REJECTED_PRCOMMITS}. '
+        'Defaulting to 10.'
+    )
+    LIMIT_REJECTED_PRCOMMITS = 10
 
 class NODEFAULT:
     """A sentinel value to indicate that a default value is not provided."""
@@ -1088,8 +1097,15 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
     def get_commits(self, do_files: bool = False):
         """Fetch the commits associated with the pull request."""
         commits = self.gh_obj.get_commits()
+        total = commits.totalCount
+        if total > LIMIT_REJECTED_PRCOMMITS and self.is_closed and not self.is_merged:
+            logger.warning(
+                f"Pull request {self.number} has {total} commits, "
+                'and is closed but not merged. Skipping commits...'
+            )
+            return []
         commits = progress_bar(
-            commits, total=commits.totalCount,
+            commits, total=total,
             description=f"Fetching commits for PR#{self.number}"
         )
 
