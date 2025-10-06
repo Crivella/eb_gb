@@ -665,41 +665,38 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
                         sys.exit(1)
         return res
 
-    def update(self) -> Self | None:
+    def update(self) -> list[str]:
         """
         Update the issue object from GitHub.
         This method fetches the latest data from GitHub and updates the instance.
         """
+        msg = []
         if self.gh_obj.updated_at > self.updated_at:
             # Fetch the latest issue object from GitHub
             pre_num_comments = self.comments.count()
-            pre_num_assignes = self.assignees.count()
 
             new = self.create_from_obj(self.gh_obj, foreign={'repository': self.repository}, update=True)
-            new.get_assignes()  # Fetch assignees after updating the issue
             new.get_comments()  # Fetch comments after updating the issue
 
             post_num_comments = new.comments.count()
-            post_num_assignes = new.assignees.count()
 
-            msg = []
             if pre_num_comments != post_num_comments:
                 msg.append(f"Comments: {pre_num_comments} -> {post_num_comments}")
-            if pre_num_assignes != post_num_assignes:
-                msg.append(f"Assignees: {pre_num_assignes} -> {post_num_assignes}")
 
-            if new.is_closed:
-                msg.append(f"Closed at: {new.closed_at}")
-
-            if not msg:
-                msg.append('No changes detected.')
-
-            logger.info(f"Updated Issue #{new.number}: {', '.join(msg)}")
-
-            return new
-
-        logger.debug(f"Issue #{self.number} is already up-to-date.")
-        return None
+            pr_obj = self.pr_obj
+            if pr_obj is not None:
+                msg += pr_obj.update()
+            else:
+                pre_num_assignes = self.assignees.count()
+                new.get_assignes()  # Fetch assignees after updating the issue
+                post_num_assignes = new.assignees.count()
+                if pre_num_assignes != post_num_assignes:
+                    msg.append(f"Assignees: {pre_num_assignes} -> {post_num_assignes}")
+                if new.is_closed:
+                    msg.append(f"Closed at: {new.closed_at}")
+        else:
+            logger.debug(f"Issue #{ self.number} is already up-to-date.")
+        return msg
 
     def get_comments(self) -> list['GithubIssueComment']:
         """
@@ -735,6 +732,18 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
         This method is used to ensure that the GitHub issue object is always up-to-date.
         """
         return self.repository.gh_obj.get_issue(self.number)
+
+    @property
+    def pr_obj(self) -> 'GithubPullRequest':
+        """Return the associated pull request object if this issue is a PR."""
+        if not self.is_pr:
+            return None
+        q = GithubPullRequest.objects
+        q = q.filter(repository=self.repository, number=self.number)
+        if q.exists():
+            return q.first()
+        logger.warning(f'PR object for Issue #{self.number} not found.')
+        return None
 
 class GithubIssueComment(GithubMixin[gh_api.IssueComment]):
     """Model representing a GitHub comment."""
@@ -993,11 +1002,12 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         pr = repository.gh_obj.get_pull(number)
         return cls.create_from_obj(pr, foreign={'repository': repository}, update=update)
 
-    def update(self) -> Self | None:
+    def update(self) -> list[str]:
         """
         Update the pull request object from GitHub.
         This method fetches the latest data from GitHub and updates the instance.
         """
+        msg = []
         if self.gh_obj.updated_at > self.updated_at:
             prev_num_files = self.files.count()
             prev_num_assignees = self.assignees.count()
@@ -1014,7 +1024,6 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
             post_num_reviews = new.reviews.count()
             post_files_hases = set(new.files.values_list('sha', flat=True))
 
-            msg = []
             if post_num_files != prev_num_files:
                 msg.append(f"#Files: {prev_num_files} -> {post_num_files}")
             elif post_files_hases != prev_files_hases:
@@ -1026,17 +1035,10 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
 
             if new.is_closed:
                 if new.is_merged:
-                    msg.append(f'PR merged at: {new.merged_at}')
+                    msg.append(f'Merged at: {new.merged_at}')
                 else:
-                    msg.append(f'PR closed at: {new.closed_at}')
-
-            if not msg:
-                msg.append('No changes detected')
-
-            logger.info(f"Updated PR {new.number}:  {', '.join(msg)}")
-
-            return new
-        return None
+                    msg.append(f'Closed at: {new.closed_at}')
+        return msg
 
     def get_assignes(self) -> list[GithubUser]:
         """"Fetch the assignees data for the issue."""

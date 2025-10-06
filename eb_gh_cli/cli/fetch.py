@@ -97,7 +97,6 @@ def comments_from_issue(gh_issue, verbose):
     type=click.IntRange(min=1),
     help='Update open issues and PRs.'
 )
-@click.option('--prs/--no-prs', is_flag=True, default=True, help='Fetch PRs as well.')
 @click.option('--commits/--no-commits', is_flag=True, default=True, help='Fetch commits for PRs.')
 @click.option(
     '--comments/--no-comments', is_flag=True, default=True,
@@ -110,7 +109,6 @@ def sync_repo(
     # since: datetime = None,
     since_number: int = None,
     update_open: int = None,
-    prs: bool = True,
     commits: bool = True,
     comments: bool = True,
     files: bool = True
@@ -121,7 +119,7 @@ def sync_repo(
             gh_repo,
             # since=since,
             since_number=since_number,
-            do_prs=prs, do_comments=comments, do_files=files, do_commits=commits
+            do_comments=comments, do_files=files, do_commits=commits
         )
         logger.info(f'New Issues fetched: {len(issue_lst)}')
     except django.core.exceptions.ValidationError as e:
@@ -139,34 +137,17 @@ def sync_repo(
         open_issues = progress_bar(
             open_issues,
             total=len(open_issues),
-            description=f'Updating {len(open_issues)} open issues',
+            description=f'Updating {len(open_issues)} open issues/PRs',
         )
         updated = []
         for issue in open_issues:
+            typ_str = 'PR' if issue.is_pr else 'Issue'
             with progress_bar_level_inc():
-                new = issue.update()
-                if new:
-                    updated.append(new)
+                msg = issue.update()
+                if msg:
+                    logger.info(f"Updated {typ_str:>6s} #{issue.number:>6d}: {', '.join(msg)}")
+                    updated.append(issue)
         logger.info(f'Updated {len(updated)} open issues.')
-
-        if prs:
-            q = gh_repo.pull_requests
-            q = q.filter(is_merged=False, is_closed=False)
-            q = q.filter(number__gte=update_open)
-            q = q.exclude(number__in=numbers)
-            open_prs = q.all()
-            open_prs = progress_bar(
-                open_prs,
-                total=len(open_prs),
-                description=f'Updating {len(open_prs)} open pull requests',
-            )
-            updated = []
-            for pr in open_prs:
-                with progress_bar_level_inc():
-                    new = pr.update()
-                    if new:
-                        updated.append(new)
-            logger.info(f'Updated {len(updated)} open pull requests.')
 
 
 def filter_gists(ids: set[str]) -> set[str]:
