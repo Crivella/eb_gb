@@ -500,16 +500,16 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
     is_pr = models.BooleanField(default=False, help_text='Indicates if the issue is a pull request')
 
     created_by = models.ForeignKey(
-        GithubUser, related_name='created_issues', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='created_issues', on_delete=models.SET_NULL, null=True, blank=True
         )
     closed_by = models.ForeignKey(
-        GithubUser, related_name='closed_issues', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='closed_issues', on_delete=models.SET_NULL, null=True, blank=True
         )
 
     assignees = models.ManyToManyField(GithubUser, related_name='assigned_issues', blank=True)
     labels = models.ManyToManyField('GithubLabel', related_name='issues', blank=True)
     milestone = models.ForeignKey(
-        'GithubMilestone', related_name='issues', on_delete=models.CASCADE, null=True, blank=True
+        'GithubMilestone', related_name='issues', on_delete=models.SET_NULL, null=True, blank=True
     )
     participants = models.ManyToManyField(GithubUser, related_name='participated_issues', blank=True)
 
@@ -751,7 +751,7 @@ class GithubIssueComment(GithubMixin[gh_api.IssueComment]):
     issue = models.ForeignKey('GithubIssue', related_name='comments', on_delete=models.CASCADE)
 
     created_by = models.ForeignKey(
-        GithubUser, related_name='created_comments', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='created_comments', on_delete=models.SET_NULL, null=True, blank=True
     )
 
     created_at = models.DateTimeField()
@@ -771,7 +771,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
     sha = models.CharField(max_length=40)
     message = models.TextField(blank=True, null=True)
     author = models.ForeignKey(
-        GithubUser, related_name='authored_commits', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='authored_commits', on_delete=models.SET_NULL, null=True, blank=True
     )
     # This seems equivalent to the author by looking at the REST API documentation
     # committer = models.ForeignKey(
@@ -881,10 +881,10 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
     is_closed = models.BooleanField(default=False)
 
     created_by = models.ForeignKey(
-        GithubUser, related_name='created_pull_requests', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='created_pull_requests', on_delete=models.SET_NULL, null=True, blank=True
         )
     merged_by = models.ForeignKey(
-        GithubUser, related_name='merged_pull_requests', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='merged_pull_requests', on_delete=models.SET_NULL, null=True, blank=True
         )
 
     assignees = models.ManyToManyField(GithubUser, related_name='assigned_pull_requests', blank=True)
@@ -893,7 +893,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
 
     labels = models.ManyToManyField('GithubLabel', related_name='pull_requests', blank=True)
     milestone = models.ForeignKey(
-        'GithubMilestone', related_name='pull_requests', on_delete=models.CASCADE, null=True, blank=True
+        'GithubMilestone', related_name='pull_requests', on_delete=models.SET_NULL, null=True, blank=True
     )
 
     commits = models.ManyToManyField(
@@ -1140,7 +1140,7 @@ class GithubPRReview(GithubMixin[gh_api.PullRequestReview]):
     pull_request = models.ForeignKey(GithubPullRequest, related_name='reviews', on_delete=models.CASCADE)
 
     created_by = models.ForeignKey(
-        GithubUser, related_name='created_pull_request_reviews', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='created_pull_request_reviews', on_delete=models.SET_NULL, null=True, blank=True
     )
 
     state = models.CharField(max_length=50, choices=[
@@ -1199,10 +1199,10 @@ class GithubFile(GithubMixin[gh_api.File]):
     content = models.FileField(blank=True, null=True, help_text='Content of the file')
 
     pull_request = models.ForeignKey(
-        GithubPullRequest, related_name='files', on_delete=models.CASCADE, null=True, blank=True
+        GithubPullRequest, related_name='files', on_delete=models.SET_NULL, null=True, blank=True
     )
     commit = models.ForeignKey(
-        GithubCommit, related_name='files', on_delete=models.CASCADE, null=True, blank=True
+        GithubCommit, related_name='files', on_delete=models.SET_NULL, null=True, blank=True
     )
 
     id_key = None
@@ -1242,19 +1242,19 @@ class GithubGist(GithubMixin[gh_api.Gist]):
 
     public = models.BooleanField(default=False)
     owner = models.ForeignKey(
-        GithubUser, related_name='gists', on_delete=models.CASCADE, null=True, blank=True
+        GithubUser, related_name='gists', on_delete=models.SET_NULL, null=True, blank=True
     )
 
     source_issue = models.ForeignKey(
-        GithubIssue, related_name='gists', on_delete=models.CASCADE, null=True, blank=True,
+        GithubIssue, related_name='gists', on_delete=models.SET_NULL, null=True, blank=True,
         help_text='Issue from which this Gist was extracted, if any'
     )
     source_comment = models.ForeignKey(
-        GithubIssueComment, related_name='gists', on_delete=models.CASCADE, null=True, blank=True,
+        GithubIssueComment, related_name='gists', on_delete=models.SET_NULL, null=True, blank=True,
         help_text='Comment from which this Gist was extracted, if any'
     )
     source_gist = models.ForeignKey(
-        'self', related_name='gists', on_delete=models.CASCADE, null=True, blank=True,
+        'self', related_name='gists', on_delete=models.SET_NULL, null=True, blank=True,
         help_text='Gist from which this Gist was extracted, if any'
     )
 
@@ -1342,7 +1342,7 @@ class GithubGistFile(GithubMixin[gh_api.GistFile]):
     )
 
     gist = models.ForeignKey(
-        GithubGist, related_name='files', on_delete=models.CASCADE, null=True, blank=True
+        GithubGist, related_name='files', on_delete=models.SET_NULL, null=True, blank=True
     )
 
     id_key = None
