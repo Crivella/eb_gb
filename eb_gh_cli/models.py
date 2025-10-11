@@ -248,8 +248,19 @@ class GithubMixin(models.Model, Generic[O]):
         to_remove = prev - new
         to_add = new - prev
         if to_remove:
-            rel.remove(*to_remove)
-            logger.debug(f"Removed {len(to_remove)} objects from {rel_name} for {self}.")
+            if hasattr(rel, 'remove'):
+                rel.remove(*to_remove)
+                logger.debug(f"Removed {len(to_remove)} objects from {rel_name} for {self}.")
+            else:
+                if all(hasattr(obj, 'deleted') for obj in to_remove):
+                    for obj in to_remove:
+                        obj.deleted = True
+                        obj.save()
+                    logger.debug(f"{len(to_remove)} objects not removed but marked as deleted.")
+                else:
+                    self.logger.warning(
+                        f"Bug in the code: the related manager {rel} does not support removal"
+                    )
         if to_add:
             rel.add(*to_add)
             logger.debug(f"Added {len(to_add)} objects to {rel_name} for {self}.")
@@ -1142,6 +1153,8 @@ class GithubPRReview(GithubMixin[gh_api.PullRequestReview]):
     created_by = models.ForeignKey(
         GithubUser, related_name='created_pull_request_reviews', on_delete=models.SET_NULL, null=True, blank=True
     )
+
+    deleted = models.BooleanField(default=False)
 
     state = models.CharField(max_length=50, choices=[
         ('APPROVED', 'Approved'),
