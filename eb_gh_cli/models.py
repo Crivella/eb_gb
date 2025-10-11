@@ -724,6 +724,7 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
             comment_obj = GithubIssueComment.create_from_obj(comment, foreign={'issue': self})
             res.append(comment_obj)
 
+        self.update_related('comments', res)
         return res
 
     def get_assignes(self) -> list[GithubUser]:
@@ -764,6 +765,8 @@ class GithubIssueComment(GithubMixin[gh_api.IssueComment]):
     created_by = models.ForeignKey(
         GithubUser, related_name='created_comments', on_delete=models.SET_NULL, null=True, blank=True
     )
+
+    deleted = models.BooleanField(default=False)
 
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
