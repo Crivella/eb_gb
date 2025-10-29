@@ -103,6 +103,7 @@ def comments_from_issue(gh_issue, verbose):
     help='Fetch comments for issues and reviews for PRs.'
 )
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for PRs and commits.')
+@click.option('--prs/--no-prs', is_flag=True, default=True, help='Fetch also PRs')
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
 def sync_repo(
     gh_repo: m.GithubRepository,
@@ -111,7 +112,8 @@ def sync_repo(
     update_open: int = None,
     commits: bool = True,
     comments: bool = True,
-    files: bool = True
+    files: bool = True,
+    prs: bool = True,
 ):
     """Synchronize a GitHub repository Issue and PRs with the database."""
     try:
@@ -119,7 +121,8 @@ def sync_repo(
             gh_repo,
             # since=since,
             since_number=since_number,
-            do_comments=comments, do_files=files, do_commits=commits
+            do_comments=comments, do_files=files, do_commits=commits,
+            do_prs=prs,
         )
         logger.info(f'New Issues fetched: {len(issue_lst)}')
     except django.core.exceptions.ValidationError as e:

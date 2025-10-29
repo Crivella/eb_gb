@@ -837,7 +837,7 @@ class GithubCommit(GithubMixin[gh_api.Commit]):
         # TODO: This should probably be a user settable filter (either through the CLI or environment variable)
         if self.message.startswith('Merge branch'):
             logger.warning(
-                f"Commit {self.sha[:8]} has {total} files changed, "
+                f"Commit {self.sha[:8]} has {total:>5d} files changed, "
                 'and is a merge commit. Skipping files...'
             )
             return []
