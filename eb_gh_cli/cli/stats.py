@@ -21,7 +21,8 @@ from .main import stats
 def user_pr_issue_stats(
         qparam: str, repository: m.GithubRepository,
         since: datetime = None, upto: datetime = None,
-        limit: int = None
+        limit: int = None,
+        only_open: bool = False
     ):
     """Get user PR and issue stats."""
     q = m.GithubUser.objects
@@ -34,6 +35,9 @@ def user_pr_issue_stats(
         key = qparam.split('_')[0]
         key += '_at'
         cnt_flt &= dmod.Q(**{f'{qparam}__{key}__lte': upto})
+    if only_open:
+        cnt_flt &= dmod.Q(**{f'{qparam}__is_closed': False})
+
     q = q.annotate(
         count=dmod.Count(
             qparam,
@@ -70,20 +74,22 @@ def repo_pr_mergers(gh_repo: m.GithubRepository, since, upto, limit):
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
+@click.option('--only-open', is_flag=True, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
 @opt.UPTO_OPTION
-def repo_pr_creators(gh_repo: m.GithubRepository, since, upto, limit):
+def repo_pr_creators(gh_repo: m.GithubRepository, since, upto, limit, only_open):
     """Show the top PR creators for a GitHub repository."""
-    user_pr_issue_stats('created_pull_requests', gh_repo, since=since, upto=upto, limit=limit)
+    user_pr_issue_stats('created_pull_requests', gh_repo, since=since, upto=upto, limit=limit, only_open=only_open)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
+@click.option('--only-open', is_flag=True, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
 @opt.UPTO_OPTION
-def repo_issue_creators(gh_repo: m.GithubRepository, since, upto, limit):
+def repo_issue_creators(gh_repo: m.GithubRepository, since, upto, limit, only_open):
     """Show the top issue creators for a GitHub repository."""
-    user_pr_issue_stats('created_issues', gh_repo, since=since, upto=upto, limit=limit)
+    user_pr_issue_stats('created_issues', gh_repo, since=since, upto=upto, limit=limit, only_open=only_open)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
