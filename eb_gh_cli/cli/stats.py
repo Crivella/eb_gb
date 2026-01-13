@@ -1,6 +1,8 @@
 """Stats commands for the eb_gh_cli CLI."""
 from datetime import datetime
 
+from dateutil.relativedelta import relativedelta
+
 try:
     import matplotlib.pyplot as plt
     import numpy as np
@@ -101,7 +103,13 @@ def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
-def pr_plot(gh_repo: m.GithubRepository):
+@click.option('--group-by-months', type=click.INT, default=1, help='Group stats by number of months.')
+@click.option('--limit', type=click.INT, default=None, help='Limit the number of data points shown.')
+def pr_plot(
+        gh_repo: m.GithubRepository,
+        group_by_months: int,
+        limit: int = None
+    ):
     """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
     if not HAVE_MATPLOTLIB:
         click.echo('Matplotlib is not installed, cannot plot PR stats.')
@@ -116,38 +124,40 @@ def pr_plot(gh_repo: m.GithubRepository):
     merged_dates = [pr.merged_at.date() for pr in q if pr.merged_at]
     closed_dates = [pr.closed_at.date() for pr in q if pr.closed_at and not pr.merged_at]
 
-    created_dates_counts = {}
-    for date in created_dates:
-        date_str = date.strftime('%Y-%m')
-        created_dates_counts[date_str] = created_dates_counts.get(date_str, 0) + 1
-    merged_dates_counts = {}
-    for date in merged_dates:
-        date_str = date.strftime('%Y-%m')
-        merged_dates_counts[date_str] = merged_dates_counts.get(date_str, 0) + 1
-    closed_dates_counts = {}
-    for date in closed_dates:
-        date_str = date.strftime('%Y-%m')
-        closed_dates_counts[date_str] = closed_dates_counts.get(date_str, 0) + 1
+    start_date = min(min(_) for _ in [created_dates, merged_dates, closed_dates] if _)
+    end_date = max(max(_) for _ in [created_dates, merged_dates, closed_dates] if _)
+    if limit:
+        start_date = max(end_date - relativedelta(months=group_by_months * limit), start_date)
+    click.echo(f'Plotting PR stats from {start_date} to {end_date}.')
 
-    all_dates = set(created_dates_counts.keys()) | set(merged_dates_counts.keys()) | set(closed_dates_counts.keys())
-    all_dates = sorted(all_dates)
-    created_counts = [created_dates_counts.get(date, 0) for date in all_dates]
-    merged_counts = [merged_dates_counts.get(date, 0) for date in all_dates]
-    closed_counts = [closed_dates_counts.get(date, 0) for date in all_dates]
+    date_range = np.arange(start_date, end_date, dtype='datetime64[M]')
+    date_bins = date_range[::group_by_months]
+    date_bins = np.append(date_bins, np.datetime64(end_date, 'M') + np.timedelta64(1, 'M'))
 
-    # Plot with 1 month bins from starting to ending month
+    created_counts, _ = np.histogram(created_dates, bins=date_bins)
+    merged_counts, _ = np.histogram(merged_dates, bins=date_bins)
+    closed_counts, _ = np.histogram(closed_dates, bins=date_bins)
+
     _, ax = plt.subplots(figsize=(18, 9))
-    x = np.arange(len(all_dates))
+    x = date_bins[:-1]  # Use left edges for plotting
+
     ax.plot(x, created_counts, marker='o', label='Created', color='blue')
     ax.plot(x, merged_counts, marker='o', label='Merged', color='green')
     ax.plot(x, closed_counts, marker='o', label='Closed', color='red')
-    ax.set_xticks(x[::4])
-    ax.set_xticklabels(all_dates[::4], rotation=80)
+
+    m = max(1, len(date_bins) // 25)
+    xticks = date_bins[::-int(m)][::-1]  # Ensure right edge is included
+    date_labels = [np.datetime_as_string(dt, unit='M') for dt in xticks]
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(date_labels, rotation=80)
 
     # Also plot histogram of differences between created and merged/closed
-    diff = np.array(created_counts) - (np.array(merged_counts) + np.array(closed_counts))
+    diff = created_counts - (merged_counts + closed_counts)
     colors = ['red' if v < 0 else 'green' for v in diff]
-    ax.bar(x, diff, label='Created - (Merged + Closed)', color=colors, alpha=0.5)
+    ax.bar(
+        x, diff, np.timedelta64(group_by_months, 'M') * 0.8,
+        label='Created - (Merged + Closed)', color=colors, alpha=0.5
+    )
 
     ax.set_xlabel('Date (Year-Month)')
     ax.set_ylabel('Number of PRs')
@@ -159,7 +169,13 @@ def pr_plot(gh_repo: m.GithubRepository):
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
-def issue_plot(gh_repo: m.GithubRepository):
+@click.option('--group-by-months', type=click.INT, default=1, help='Group stats by number of months.')
+@click.option('--limit', type=click.INT, default=None, help='Limit the number of data points shown.')
+def issue_plot(
+        gh_repo: m.GithubRepository,
+        group_by_months: int,
+        limit: int = None
+    ):
     """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
     if not HAVE_MATPLOTLIB:
         click.echo('Matplotlib is not installed, cannot plot PR stats.')
@@ -172,32 +188,38 @@ def issue_plot(gh_repo: m.GithubRepository):
     created_dates = [pr.created_at.date() for pr in q]
     closed_dates = [pr.closed_at.date() for pr in q if pr.closed_at]
 
-    created_dates_counts = {}
-    for date in created_dates:
-        date_str = date.strftime('%Y-%m')
-        created_dates_counts[date_str] = created_dates_counts.get(date_str, 0) + 1
-    closed_dates_counts = {}
-    for date in closed_dates:
-        date_str = date.strftime('%Y-%m')
-        closed_dates_counts[date_str] = closed_dates_counts.get(date_str, 0) + 1
+    start_date = min(min(_) for _ in [created_dates, closed_dates] if _)
+    end_date = max(max(_) for _ in [created_dates, closed_dates] if _)
+    if limit:
+        start_date = max(end_date - relativedelta(months=group_by_months * limit), start_date)
+    click.echo(f'Plotting PR stats from {start_date} to {end_date}.')
 
-    all_dates = set(created_dates_counts.keys()) | set(closed_dates_counts.keys())
-    all_dates = sorted(all_dates)
-    created_counts = [created_dates_counts.get(date, 0) for date in all_dates]
-    closed_counts = [closed_dates_counts.get(date, 0) for date in all_dates]
+    date_range = np.arange(start_date, end_date, dtype='datetime64[M]')
+    date_bins = date_range[::group_by_months]
+    date_bins = np.append(date_bins, np.datetime64(end_date, 'M') + np.timedelta64(1, 'M'))
 
-    # Plot with 1 month bins from starting to ending month
+    created_counts, _ = np.histogram(created_dates, bins=date_bins)
+    closed_counts, _ = np.histogram(closed_dates, bins=date_bins)
+
     _, ax = plt.subplots(figsize=(18, 9))
-    x = np.arange(len(all_dates))
+    x = date_bins[:-1]  # Use left edges for plotting
+
     ax.plot(x, created_counts, marker='o', label='Created', color='blue')
     ax.plot(x, closed_counts, marker='o', label='Closed', color='red')
-    ax.set_xticks(x[::4])
-    ax.set_xticklabels(all_dates[::4], rotation=80)
+
+    m = max(1, len(date_bins) // 25)
+    xticks = date_bins[::-int(m)][::-1]  # Ensure right edge is included
+    date_labels = [np.datetime_as_string(dt, unit='M') for dt in xticks]
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(date_labels, rotation=80)
 
     # Also plot histogram of differences between created and merged/closed
-    diff = np.array(created_counts) - np.array(closed_counts)
+    diff = created_counts - closed_counts
     colors = ['red' if v < 0 else 'green' for v in diff]
-    ax.bar(x, diff, label='Created - Closed', color=colors, alpha=0.5)
+    ax.bar(
+        x, diff, np.timedelta64(group_by_months, 'M') * 0.8,
+        label='Created - Closed', color=colors, alpha=0.5
+    )
 
     ax.set_xlabel('Date (Year-Month)')
     ax.set_ylabel('Number of Issues')
