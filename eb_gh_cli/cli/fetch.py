@@ -192,7 +192,7 @@ def fetch_gists(
 @opt.SINCE_OPTION
 @opt.SINCE_NUMBER_OPTION
 @click.option('--gh-repo', type=ct.GithubRepositoryType(allow_new=False), help='GitHub repository to fetch gists from.')
-@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
+@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch gist files.')
 @click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
 @click.option('--delay', type=float, default=2.0, help='Delay between fetching gists (in seconds).')
 def gists_from_issuecomments(
@@ -254,7 +254,7 @@ def gists_from_issuecomments(
 # @click.argument('gh-repo', type=ct.GithubRepositoryType())
 @click.option('--gh-repo', type=ct.GithubRepositoryType(allow_new=False), help='GitHub repository to fetch gists from.')
 @opt.SINCE_OPTION
-@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for commits.')
+@click.option('--files/--no-files', is_flag=True, default=True, help='Fetch gist files.')
 @click.option('--force', '-f', is_flag=True, help='Force updating gists that are already downloaded')
 @click.option('--delay', type=float, default=2.0, help='Delay between fetching gists (in seconds).')
 def gists_from_gists(

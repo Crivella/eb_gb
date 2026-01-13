@@ -77,6 +77,7 @@ class GithubUserType(DjangoModelType):
 
 class GithubRepositoryType(DjangoModelType):
     """Custom Click parameter type for GitHub Repositories."""
+    name = 'github_repository'
     model_class = m.GithubRepository
 
     filters = {
