@@ -12,6 +12,7 @@ except ImportError:
     HAVE_MATPLOTLIB = False
 
 from django.db import models as dmod
+from django.utils import timezone
 
 from .. import models as m
 from . import click
@@ -101,6 +102,94 @@ def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top issue closers for a GitHub repository."""
     user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit)
 
+def plot_pr_stats_over_time(
+        query,
+        fields: list[str],
+        *,
+        y_label: str,
+        title: str = 'Stats Over Time',
+        colors: list[str] = None,
+        created_field: str = 'created_at',
+        field_extra_query: dict = None,
+        hist_fields: dict = None,
+        group_by_months: int = 1,
+        limit: int = None
+    ):
+    """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
+    if not HAVE_MATPLOTLIB:
+        click.echo('Matplotlib is not installed, cannot plot PR stats.')
+        return
+
+    field_extra_query = field_extra_query or {}
+    colors = colors or ['blue', 'green', 'red', 'orange', 'purple', 'cyan', 'magenta']
+
+    end_date = datetime.now().date()
+    if limit:
+        start_date = end_date - relativedelta(months=group_by_months * limit)
+    else:
+        start_date = query.filter(
+            **{f'{created_field}__isnull': False}
+        ).aggregate(
+            dmod.Min(created_field)
+        )[f'{created_field}__min']
+    click.echo(f'Plotting PR stats from {start_date} to {end_date}.')
+
+    date_range = np.arange(start_date, end_date + relativedelta(months=1), dtype='datetime64[M]')
+    date_bins = date_range[::group_by_months]
+    date_bins = np.append(date_bins, np.datetime64(end_date, 'M') + np.timedelta64(1, 'M'))
+
+    fields_counts = {field: [] for field in fields}
+    for bs, be in zip(date_bins[:-1], date_bins[1:]):
+        bs = timezone.make_aware(datetime.strptime(np.datetime_as_string(bs, unit='D'), '%Y-%m-%d'))
+        be = timezone.make_aware(datetime.strptime(np.datetime_as_string(be, unit='D'), '%Y-%m-%d'))
+        for field in fields:
+            fields_counts[field].append(
+                query.filter(
+                    **{f'{field}__gte': bs, f'{field}__lt': be},
+                    **field_extra_query.get(field, {})
+                ).count()
+            )
+    fields_counts = {field: np.array(counts) for field, counts in fields_counts.items()}
+
+    _, ax = plt.subplots(figsize=(18, 9))
+    x = date_bins[:-1]  # Use left edges for plotting
+    for i, field in enumerate(fields):
+        ax.plot(
+            x, fields_counts[field], marker='o', label=field.replace('_', ' ').title(),
+            color=colors[i % len(colors)]
+        )
+
+    m = max(1, len(date_bins) // 25)
+    xticks = date_bins[::-int(m)][::-1]  # Ensure right edge is included
+    date_labels = [np.datetime_as_string(dt, unit='M') for dt in xticks]
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(date_labels, rotation=80)
+
+    if hist_fields is not None:
+        diff = np.zeros_like(fields_counts[fields[0]])
+        for field_name, mult in hist_fields.items():
+            diff += fields_counts[field_name] * mult
+        colors = ['red' if v < 0 else 'green' for v in diff]
+        label = ''
+        for field_name, mult in hist_fields.items():
+            if label:
+                label += ' + ' if mult > 0 else ' - '
+            if abs(mult) != 1:
+                label += f'{abs(mult)}*'
+            label += field_name.replace('_', ' ').title()
+        ax.bar(
+            x, diff, np.timedelta64(group_by_months * 30, 'D') * 0.8,
+            label=label,
+            color=colors, alpha=0.5
+        )
+    ax.set_xlabel('Date (Year-Month)')
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True)
+    plt.tight_layout()
+    plt.show()
+
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--group-by-months', type=click.INT, default=1, help='Group stats by number of months.')
@@ -111,61 +200,20 @@ def pr_plot(
         limit: int = None
     ):
     """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
-    if not HAVE_MATPLOTLIB:
-        click.echo('Matplotlib is not installed, cannot plot PR stats.')
-        return
-    q = gh_repo.pull_requests.all()
-    if not q:
-        click.echo(f'No pull requests found for repository {gh_repo.name}.')
-        return
-    click.echo(f'Found {len(q)} pull requests for repository {gh_repo.name}.')
-
-    created_dates = [pr.created_at.date() for pr in q]
-    merged_dates = [pr.merged_at.date() for pr in q if pr.merged_at]
-    closed_dates = [pr.closed_at.date() for pr in q if pr.closed_at and not pr.merged_at]
-
-    start_date = min(min(_) for _ in [created_dates, merged_dates, closed_dates] if _)
-    end_date = max(max(_) for _ in [created_dates, merged_dates, closed_dates] if _)
-    if limit:
-        start_date = max(end_date - relativedelta(months=group_by_months * limit), start_date)
-    click.echo(f'Plotting PR stats from {start_date} to {end_date}.')
-
-    date_range = np.arange(start_date, end_date, dtype='datetime64[M]')
-    date_bins = date_range[::group_by_months]
-    date_bins = np.append(date_bins, np.datetime64(end_date, 'M') + np.timedelta64(1, 'M'))
-
-    created_counts, _ = np.histogram(created_dates, bins=date_bins)
-    merged_counts, _ = np.histogram(merged_dates, bins=date_bins)
-    closed_counts, _ = np.histogram(closed_dates, bins=date_bins)
-
-    _, ax = plt.subplots(figsize=(18, 9))
-    x = date_bins[:-1]  # Use left edges for plotting
-
-    ax.plot(x, created_counts, marker='o', label='Created', color='blue')
-    ax.plot(x, merged_counts, marker='o', label='Merged', color='green')
-    ax.plot(x, closed_counts, marker='o', label='Closed', color='red')
-
-    m = max(1, len(date_bins) // 25)
-    xticks = date_bins[::-int(m)][::-1]  # Ensure right edge is included
-    date_labels = [np.datetime_as_string(dt, unit='M') for dt in xticks]
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(date_labels, rotation=80)
-
-    # Also plot histogram of differences between created and merged/closed
-    diff = created_counts - (merged_counts + closed_counts)
-    colors = ['red' if v < 0 else 'green' for v in diff]
-    ax.bar(
-        x, diff, np.timedelta64(group_by_months, 'M') * 0.8,
-        label='Created - (Merged + Closed)', color=colors, alpha=0.5
+    query = gh_repo.pull_requests
+    plot_pr_stats_over_time(
+        query,
+        fields=['created_at', 'merged_at', 'closed_at'],
+        colors=['blue', 'green', 'red'],
+        field_extra_query={
+            'closed_at': {'merged_at__isnull': True}
+        },
+        hist_fields={'created_at': 1, 'merged_at': -1, 'closed_at': -1},
+        y_label='Number of PRs',
+        title=f'PR Stats Over Time for {gh_repo.name}',
+        group_by_months=group_by_months,
+        limit=limit
     )
-
-    ax.set_xlabel('Date (Year-Month)')
-    ax.set_ylabel('Number of PRs')
-    ax.set_title(f'PR Stats Over Time for {gh_repo.name}')
-    ax.legend()
-    ax.grid(True)
-    plt.tight_layout()
-    plt.show()
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
@@ -177,54 +225,14 @@ def issue_plot(
         limit: int = None
     ):
     """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
-    if not HAVE_MATPLOTLIB:
-        click.echo('Matplotlib is not installed, cannot plot PR stats.')
-        return
-    q = gh_repo.issues.filter(is_pr=False).all()
-    if not q:
-        click.echo(f'No pull requests found for repository {gh_repo.name}.')
-        return
-
-    created_dates = [pr.created_at.date() for pr in q]
-    closed_dates = [pr.closed_at.date() for pr in q if pr.closed_at]
-
-    start_date = min(min(_) for _ in [created_dates, closed_dates] if _)
-    end_date = max(max(_) for _ in [created_dates, closed_dates] if _)
-    if limit:
-        start_date = max(end_date - relativedelta(months=group_by_months * limit), start_date)
-    click.echo(f'Plotting PR stats from {start_date} to {end_date}.')
-
-    date_range = np.arange(start_date, end_date, dtype='datetime64[M]')
-    date_bins = date_range[::group_by_months]
-    date_bins = np.append(date_bins, np.datetime64(end_date, 'M') + np.timedelta64(1, 'M'))
-
-    created_counts, _ = np.histogram(created_dates, bins=date_bins)
-    closed_counts, _ = np.histogram(closed_dates, bins=date_bins)
-
-    _, ax = plt.subplots(figsize=(18, 9))
-    x = date_bins[:-1]  # Use left edges for plotting
-
-    ax.plot(x, created_counts, marker='o', label='Created', color='blue')
-    ax.plot(x, closed_counts, marker='o', label='Closed', color='red')
-
-    m = max(1, len(date_bins) // 25)
-    xticks = date_bins[::-int(m)][::-1]  # Ensure right edge is included
-    date_labels = [np.datetime_as_string(dt, unit='M') for dt in xticks]
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(date_labels, rotation=80)
-
-    # Also plot histogram of differences between created and merged/closed
-    diff = created_counts - closed_counts
-    colors = ['red' if v < 0 else 'green' for v in diff]
-    ax.bar(
-        x, diff, np.timedelta64(group_by_months, 'M') * 0.8,
-        label='Created - Closed', color=colors, alpha=0.5
+    query = gh_repo.issues.filter(is_pr=False)
+    plot_pr_stats_over_time(
+        query,
+        fields=['created_at', 'closed_at'],
+        colors=['blue', 'red'],
+        hist_fields={'created_at': 1, 'closed_at': -1},
+        y_label='Number of Issues',
+        title=f'Issue Stats Over Time for {gh_repo.name}',
+        group_by_months=group_by_months,
+        limit=limit
     )
-
-    ax.set_xlabel('Date (Year-Month)')
-    ax.set_ylabel('Number of Issues')
-    ax.set_title(f'Issues Stats Over Time for {gh_repo.name}')
-    ax.legend()
-    ax.grid(True)
-    plt.tight_layout()
-    plt.show()
