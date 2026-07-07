@@ -89,6 +89,38 @@ def comments_from_issue(gh_issue, verbose):
 
 @fetch.command()
 @opt.FILTER_USER_OPTION
+@opt.SINCE_NUMBER_OPTION
+@click.option('--prs/--no-prs', is_flag=True, default=True, help='Whether to fetch PRs')
+@click.argument('gh-repo', type=ct.GithubRepositoryType())
+def sync_repo_label(
+    gh_repo: m.GithubRepository,
+    since_number: int = None,
+    prs: bool = True,
+):
+    """Update labels for all Issues and PRs"""
+    q = gh_repo.issues
+    if not prs:
+        q = q.filter(is_pr=False)
+    if since_number:
+        q = q.filter(number__gte=since_number)
+    issues = q.all()
+    issues = progress_bar(
+        issues,
+        total=len(issues),
+        description=f'Updating labels for {len(issues)} issues',
+    )
+    for issue in issues:
+        issue: m.GithubIssue
+        with progress_bar_level_inc():
+            labels = issue.get_labels()
+            if labels:
+                labels_strs = [label.name for label in labels]
+                logger.info(f"Updated Issue #{issue.number:>6d}: {', '.join(labels_strs)}")
+            if prs and issue.pr_obj:
+                issue.pr_obj.update_related('labels', labels)
+
+@fetch.command()
+@opt.FILTER_USER_OPTION
 # @opt.SINCE_OPTION
 @opt.SINCE_NUMBER_OPTION
 @click.option(
@@ -102,6 +134,7 @@ def comments_from_issue(gh_issue, verbose):
     '--comments/--no-comments', is_flag=True, default=True,
     help='Fetch comments for issues and reviews for PRs.'
 )
+@click.option('--labels/--no-labels', is_flag=True, default=True, help='Fetch labels for issues and PRs.')
 @click.option('--files/--no-files', is_flag=True, default=True, help='Fetch files for PRs and commits.')
 @click.option('--prs/--no-prs', is_flag=True, default=True, help='Fetch also PRs')
 @click.argument('gh-repo', type=ct.GithubRepositoryType())
@@ -112,6 +145,7 @@ def sync_repo(
     update_open: int = None,
     commits: bool = True,
     comments: bool = True,
+    labels: bool = True,
     files: bool = True,
     prs: bool = True,
 ):
@@ -121,7 +155,7 @@ def sync_repo(
             gh_repo,
             # since=since,
             since_number=since_number,
-            do_comments=comments, do_files=files, do_commits=commits,
+            do_comments=comments, do_files=files, do_commits=commits, do_labels=labels,
             do_prs=prs,
         )
         logger.info(f'New Issues fetched: {len(issue_lst)}')

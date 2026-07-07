@@ -594,6 +594,7 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
             do_comments: bool = False,
             do_files: bool = False,
             do_commits: bool = False,
+            do_labels: bool = False,
             update: bool = False,
             # since: datetime = None,
             since_number: int = None
@@ -671,6 +672,8 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
                             pr_obj.get_files()
                         if do_commits:
                             pr_obj.get_commits(do_files=do_files)
+                        if do_labels:
+                            pr_obj.get_labels()
                     except Exception as e:
                         logger.error(f"Error processing PR for issue #{issue_number}: {e}", exc_info=True)
                         sys.exit(1)
@@ -737,6 +740,22 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
     def get_participants(self) -> list[GithubUser]:
         """Fetch the participants data for the issue."""
         raise NotImplementedError('Need to implement participation from both commenters and other')
+
+    def get_labels(self) -> list[GithubLabel]:
+        """Fetch the labels associated with the pull request."""
+        labels = self.gh_obj.get_labels()
+        labels = progress_bar(
+            labels, total=labels.totalCount,
+            description=f"Fetching labels for PR#{self.number}"
+        )
+
+        res = []
+        for label in labels:
+            label_obj = GithubLabel.create_from_obj(label, foreign={'repository': self.repository})
+            res.append(label_obj)
+
+        self.update_related('labels', res)
+        return res
 
     def get_gh_obj(self) -> gh_api.Issue:
         """
@@ -1135,6 +1154,22 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
                     commit_obj.get_files(pull_request=self)
 
         self.update_related('commits', res)
+        return res
+
+    def get_labels(self) -> list[GithubLabel]:
+        """Fetch the labels associated with the pull request."""
+        labels = self.gh_obj.get_labels()
+        labels = progress_bar(
+            labels, total=labels.totalCount,
+            description=f"Fetching labels for PR#{self.number}"
+        )
+
+        res = []
+        for label in labels:
+            label_obj = GithubLabel.create_from_obj(label, foreign={'repository': self.repository})
+            res.append(label_obj)
+
+        self.update_related('labels', res)
         return res
 
     def get_participants(self) -> list[GithubUser]:
