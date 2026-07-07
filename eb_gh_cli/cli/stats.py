@@ -123,6 +123,11 @@ def repo_pr_lifetime(
         query = query.filter(created_at__lte=upto)
 
     data = query.values_list('created_at', 'closed_at', 'merged_at')
+
+    num_low = 0
+    num_tot = 0
+    avg_lifetime = 0
+    avg_low_lifetime = 0
     lifetimes = []
     for created_at, closed_at, merged_at in data:
         if merged_at:
@@ -131,16 +136,36 @@ def repo_pr_lifetime(
             lifetime = (closed_at - created_at).total_seconds() / (3600.0 * 24)
         else:
             lifetime = (datetime.now(dt_timezone.utc) - created_at).total_seconds() / (3600.0 * 24)
+        avg_lifetime += lifetime
+        num_tot += 1
         if limit is not None and lifetime > limit:
             lifetime = limit
+        else:
+            avg_low_lifetime += lifetime
+            num_low += 1
         lifetimes.append(lifetime)
 
-    _, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(12, 6))
     num_bins = max(lifetimes) // 1 + 1 if lifetimes else 10
     ax.hist(lifetimes, bins=num_bins, color='blue', alpha=0.7)
     ax.set_xlabel('PR Lifetime (days)')
     ax.set_ylabel('Number of PRs')
     ax.set_title(f'PR Lifetime Histogram for {gh_repo.name}')
+
+    if num_tot:
+        ax.axvline(
+            avg_lifetime / num_tot,
+            color='red', linestyle='dashed', linewidth=1,
+            label=f'Avg Lifetime: {avg_lifetime / num_tot:.2f} days'
+        )
+    if num_low:
+        ax.axvline(
+            avg_low_lifetime / num_low,
+            color='green', linestyle='dashed', linewidth=1,
+            label=f'Avg Lifetime (<= {limit} days): {avg_low_lifetime / num_low:.2f} days'
+        )
+
+    fig.legend()
 
     plt.tight_layout()
     plt.show()
