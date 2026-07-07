@@ -1,5 +1,6 @@
 """Stats commands for the eb_gh_cli CLI."""
 from datetime import datetime
+from datetime import timezone as dt_timezone
 
 from dateutil.relativedelta import relativedelta
 
@@ -12,7 +13,7 @@ except ImportError:
     HAVE_MATPLOTLIB = False
 
 from django.db import models as dmod
-from django.utils import timezone
+from django.utils import timezone as dj_timezone
 
 from .. import models as m
 from . import click
@@ -102,6 +103,48 @@ def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top issue closers for a GitHub repository."""
     user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit)
 
+@stats.command()
+@click.argument('gh_repo', type=ct.GithubRepositoryType())
+@click.option('--limit', type=int, default=None, help='Limit of the plot in days. Flatten lifetimes > limit to limit.')
+@opt.SINCE_OPTION
+@opt.UPTO_OPTION
+def repo_pr_lifetime(
+        gh_repo: m.GithubRepository,
+        limit: int = None,
+        since = None, upto = None
+    ):
+    """Make an histogram of PR lifetimes for a GitHub repository. For Open PRs, the lifetime is calculated until now."""
+    query = gh_repo.pull_requests.filter(
+        created_at__isnull=False
+    )
+    if since:
+        query = query.filter(created_at__gte=since)
+    if upto:
+        query = query.filter(created_at__lte=upto)
+
+    data = query.values_list('created_at', 'closed_at', 'merged_at')
+    lifetimes = []
+    for created_at, closed_at, merged_at in data:
+        if merged_at:
+            lifetime = (merged_at - created_at).total_seconds() / (3600.0 * 24)
+        elif closed_at:
+            lifetime = (closed_at - created_at).total_seconds() / (3600.0 * 24)
+        else:
+            lifetime = (datetime.now(dt_timezone.utc) - created_at).total_seconds() / (3600.0 * 24)
+        if limit is not None and lifetime > limit:
+            lifetime = limit
+        lifetimes.append(lifetime)
+
+    _, ax = plt.subplots(figsize=(12, 6))
+    num_bins = max(lifetimes) // 1 + 1 if lifetimes else 10
+    ax.hist(lifetimes, bins=num_bins, color='blue', alpha=0.7)
+    ax.set_xlabel('PR Lifetime (days)')
+    ax.set_ylabel('Number of PRs')
+    ax.set_title(f'PR Lifetime Histogram for {gh_repo.name}')
+
+    plt.tight_layout()
+    plt.show()
+
 def plot_pr_stats_over_time(
         query,
         fields: list[str],
@@ -140,8 +183,8 @@ def plot_pr_stats_over_time(
 
     fields_counts = {field: [] for field in fields}
     for bs, be in zip(date_bins[:-1], date_bins[1:]):
-        bs = timezone.make_aware(datetime.strptime(np.datetime_as_string(bs, unit='D'), '%Y-%m-%d'))
-        be = timezone.make_aware(datetime.strptime(np.datetime_as_string(be, unit='D'), '%Y-%m-%d'))
+        bs = dj_timezone.make_aware(datetime.strptime(np.datetime_as_string(bs, unit='D'), '%Y-%m-%d'))
+        be = dj_timezone.make_aware(datetime.strptime(np.datetime_as_string(be, unit='D'), '%Y-%m-%d'))
         for field in fields:
             fields_counts[field].append(
                 query.filter(
