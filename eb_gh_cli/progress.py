@@ -1,8 +1,13 @@
 """Module for handling progress bars in the CLI."""
+import logging
 import time
 from contextlib import contextmanager
 
+from github.PaginatedList import PaginatedList
+
 HAVE_RICH = False
+
+logger = logging.getLogger('gh_db')
 
 try:
     from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
@@ -60,10 +65,19 @@ def progress_bar(
     ACTIVE_PROGRESS.start()
 
     if not total:
-        try:
-            total = len(iterable)
-        except TypeError:
-            total = None
+        if isinstance(iterable, PaginatedList):
+            try:
+                total = iterable.totalCount
+            except Exception:
+                logger.warning(
+                    f'Could not determine total count for PaginatedList {iterable}. Progress bar will not show total.'
+                )
+                total = None
+        else:
+            try:
+                total = len(iterable)
+            except TypeError:
+                total = None
     kwargs['total'] = total
 
     if delay is not None and delay > 0:

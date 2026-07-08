@@ -719,7 +719,7 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
         """
         comments = self.gh_obj.get_comments()
         comments = progress_bar(
-            comments, total=comments.totalCount, description=f"Fetching comments for Issue#{self.number}"
+            comments, description=f"Fetching comments for Issue#{self.number}"
         )
 
         res = []
@@ -745,8 +745,7 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
         """Fetch the labels associated with the pull request."""
         labels = self.gh_obj.get_labels()
         labels = progress_bar(
-            labels, total=labels.totalCount,
-            description=f"Fetching labels for PR#{self.number}"
+            labels, description=f"Fetching labels for PR#{self.number}"
         )
 
         res = []
@@ -1012,8 +1011,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         """
         pull_requests = repository.gh_obj.get_pulls(state='all', sort='created', direction='desc')
         pull_requests = progress_bar(
-            pull_requests, total=pull_requests.totalCount,
-            description=f'Fetching pull requests from {repository}'
+            pull_requests, description=f'Fetching pull requests from {repository}'
         )
 
         # last_created_at = cls.objects.order_by('-created_at').first()
@@ -1084,8 +1082,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         """Fetch the reviewes data for the pull request."""
         reviews = self.gh_obj.get_reviews()
         reviews = progress_bar(
-            reviews, total=reviews.totalCount,
-            description=f"Fetching reviews for PR#{self.number}"
+            reviews, description=f"Fetching reviews for PR#{self.number}"
         )
         res = []
         reviewers = []
@@ -1131,8 +1128,12 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
 
     def get_commits(self, do_files: bool = False):
         """Fetch the commits associated with the pull request."""
-        commits = self.gh_obj.get_commits()
-        total = commits.totalCount
+        try:
+            commits = self.gh_obj.get_commits()
+            total = commits.totalCount
+        except gh_api.GithubException as e:
+            logger.warning(f'Error fetching commits for {self}: {e}')
+            return []
         if total > LIMIT_REJECTED_PRCOMMITS and self.is_closed and not self.is_merged:
             logger.warning(
                 f"Pull request {self.number} has {total} commits, "
@@ -1160,8 +1161,7 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         """Fetch the labels associated with the pull request."""
         labels = self.gh_obj.get_labels()
         labels = progress_bar(
-            labels, total=labels.totalCount,
-            description=f"Fetching labels for PR#{self.number}"
+            labels, description=f"Fetching labels for PR#{self.number}"
         )
 
         res = []
