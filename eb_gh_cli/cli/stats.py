@@ -1,4 +1,5 @@
 """Stats commands for the eb_gh_cli CLI."""
+from collections import defaultdict
 from datetime import datetime
 from datetime import timezone as dt_timezone
 
@@ -108,10 +109,12 @@ def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
 @click.option('--limit', type=int, default=None, help='Limit of the plot in days. Flatten lifetimes > limit to limit.')
 @opt.SINCE_OPTION
 @opt.UPTO_OPTION
+@click.option('--highlight-labels', type=str, help='Comma-separated list of labels to highlight in the plot.')
 def repo_pr_lifetime(
         gh_repo: m.GithubRepository,
         limit: int = None,
-        since = None, upto = None
+        since = None, upto = None,
+        highlight_labels: str = None
     ):
     """Make an histogram of PR lifetimes for a GitHub repository. For Open PRs, the lifetime is calculated until now."""
     query = gh_repo.pull_requests.filter(
@@ -122,47 +125,71 @@ def repo_pr_lifetime(
     if upto:
         query = query.filter(created_at__lte=upto)
 
-    data = query.values_list('created_at', 'closed_at', 'merged_at')
+    hl_labels = set()
+    if highlight_labels:
+        hl_labels = set(l.strip() for l in highlight_labels.split(',') if l.strip())
 
-    num_low = 0
+    click.echo(f'Highlighting labels (and their cross-product): {hl_labels}')
+
+    label_data = {}
+    num_low = defaultdict(int)
+    avg_low = defaultdict(int)
     num_tot = 0
     avg_lifetime = 0
-    avg_low_lifetime = 0
-    lifetimes = []
-    for created_at, closed_at, merged_at in data:
-        if merged_at:
-            lifetime = (merged_at - created_at).total_seconds() / (3600.0 * 24)
-        elif closed_at:
-            lifetime = (closed_at - created_at).total_seconds() / (3600.0 * 24)
+    for pr in query.all():
+        pr: m.GithubPullRequest
+        pr_labels = set(l.name for l in pr.labels.all())
+        ptr_labels = tuple(sorted(pr_labels.intersection(hl_labels)))
+        if pr.merged_at:
+            lifetime = (pr.merged_at - pr.created_at).total_seconds() / (3600.0 * 24)
+        elif pr.closed_at:
+            lifetime = (pr.closed_at - pr.created_at).total_seconds() / (3600.0 * 24)
         else:
-            lifetime = (datetime.now(dt_timezone.utc) - created_at).total_seconds() / (3600.0 * 24)
+            lifetime = (datetime.now(dt_timezone.utc) - pr.created_at).total_seconds() / (3600.0 * 24)
+
         avg_lifetime += lifetime
         num_tot += 1
         if limit is not None and lifetime > limit:
             lifetime = limit
         else:
-            avg_low_lifetime += lifetime
-            num_low += 1
-        lifetimes.append(lifetime)
+            avg_low[ptr_labels] += lifetime
+            num_low[ptr_labels] += 1
+        ptr_labels = ptr_labels or 'other'
+
+        label_data.setdefault(ptr_labels, []).append(lifetime)
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    num_bins = max(lifetimes) // 1 + 1 if lifetimes else 10
-    ax.hist(lifetimes, bins=num_bins, color='blue', alpha=0.7)
+
     ax.set_xlabel('PR Lifetime (days)')
-    ax.set_ylabel('Number of PRs')
+    ax.set_ylabel('Fraction of PRs')
     ax.set_title(f'PR Lifetime Histogram for {gh_repo.name}')
+
+    num_bins = int(max(max(_) for _ in label_data.values()) // 1 + 1 if label_data else 10)
+
+    colors = ['blue', 'green', 'red', 'orange', 'purple', 'cyan', 'magenta']
+
+    ax.hist(
+        list(label_data.values()),
+        bins=num_bins,
+        color=colors[:len(label_data)],
+        density=True,
+        alpha=0.7,
+        label=[f'Labels: {label} (n={len(data)})' for label, data in label_data.items()]
+    )
+
+    for i,label in enumerate(label_data):
+        if num_low[label]:
+            ax.axvline(
+                avg_low[label] / num_low[label],
+                color=colors[i % len(colors)], linestyle='dashed', linewidth=1,
+                label=f'Avg Lifetime (d<={limit}) ({label}): {avg_low[label] / num_low[label]:.2f} days'
+            )
 
     if num_tot:
         ax.axvline(
             avg_lifetime / num_tot,
-            color='red', linestyle='dashed', linewidth=1,
+            color='black', linestyle='dashed', linewidth=1,
             label=f'Avg Lifetime: {avg_lifetime / num_tot:.2f} days'
-        )
-    if num_low:
-        ax.axvline(
-            avg_low_lifetime / num_low,
-            color='green', linestyle='dashed', linewidth=1,
-            label=f'Avg Lifetime (<= {limit} days): {avg_low_lifetime / num_low:.2f} days'
         )
 
     fig.legend()
