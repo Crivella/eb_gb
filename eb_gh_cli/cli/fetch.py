@@ -112,7 +112,11 @@ def sync_repo_label(
     for issue in issues:
         issue: m.GithubIssue
         with progress_bar_level_inc():
-            labels = issue.get_labels()
+            try:
+                labels = issue.get_labels()
+            except Exception as e:
+                logger.warning(f"Failed to fetch labels for Issue #{issue.number:>6d}: {e}")
+                continue
             if labels:
                 labels_strs = [label.name for label in labels]
                 logger.info(f"Updated Issue #{issue.number:>6d}: {', '.join(labels_strs)}")

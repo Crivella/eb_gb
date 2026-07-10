@@ -110,11 +110,13 @@ def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
 @opt.SINCE_OPTION
 @opt.UPTO_OPTION
 @click.option('--highlight-labels', type=str, help='Comma-separated list of labels to highlight in the plot.')
+@click.option('--fraction', is_flag=True, help='Plot fraction of PRs instead of absolute counts.')
 def repo_pr_lifetime(
         gh_repo: m.GithubRepository,
         limit: int = None,
         since = None, upto = None,
-        highlight_labels: str = None
+        highlight_labels: str = None,
+        fraction: bool = False
     ):
     """Make an histogram of PR lifetimes for a GitHub repository. For Open PRs, the lifetime is calculated until now."""
     query = gh_repo.pull_requests.filter(
@@ -149,12 +151,12 @@ def repo_pr_lifetime(
 
         avg_lifetime += lifetime
         num_tot += 1
+        ptr_labels = ptr_labels or ('other',)
         if limit is not None and lifetime > limit:
             lifetime = limit
         else:
             avg_low[ptr_labels] += lifetime
             num_low[ptr_labels] += 1
-        ptr_labels = ptr_labels or 'other'
 
         label_data.setdefault(ptr_labels, []).append(lifetime)
 
@@ -162,9 +164,10 @@ def repo_pr_lifetime(
 
     ax.set_xlabel('PR Lifetime (days)')
     ax.set_ylabel('Fraction of PRs')
-    ax.set_title(f'PR Lifetime Histogram for {gh_repo.name}')
 
     num_bins = int(max(max(_) for _ in label_data.values()) // 1 + 1 if label_data else 10)
+
+    label_data = dict(sorted(label_data.items(), key=lambda item: item[0], reverse=True))
 
     colors = ['blue', 'green', 'red', 'orange', 'purple', 'cyan', 'magenta']
 
@@ -172,7 +175,7 @@ def repo_pr_lifetime(
         list(label_data.values()),
         bins=num_bins,
         color=colors[:len(label_data)],
-        density=True,
+        density=fraction,
         alpha=0.7,
         label=[f'Labels: {label} (n={len(data)})' for label, data in label_data.items()]
     )
@@ -193,6 +196,13 @@ def repo_pr_lifetime(
         )
 
     fig.legend()
+
+    title_str = f'PR Lifetime `{gh_repo.name}`'
+    if since:
+        title_str += f' since {since.strftime('%Y-%m-%d')}'
+    if upto:
+        title_str += f' upto {upto.strftime('%Y-%m-%d')}'
+    ax.set_title(title_str)
 
     plt.tight_layout()
     plt.show()
