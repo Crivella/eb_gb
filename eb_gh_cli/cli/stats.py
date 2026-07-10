@@ -119,6 +119,9 @@ def repo_pr_lifetime(
         fraction: bool = False
     ):
     """Make an histogram of PR lifetimes for a GitHub repository. For Open PRs, the lifetime is calculated until now."""
+    if not HAVE_MATPLOTLIB:
+        click.echo('Matplotlib is not installed, cannot plot PR stats.')
+        return
     query = gh_repo.pull_requests.filter(
         created_at__isnull=False
     )

@@ -153,7 +153,7 @@ class GithubMixin(models.Model, Generic[O]):
         raise cls.DoesNotSupportDirectCreation(f"{cls.__name__}.create_from_dct must be implemented.")
 
     @classmethod
-    def create_from_obj(cls, obj, **kwargs) -> Self:
+    def create_from_obj(cls, obj: O, **kwargs) -> Self:
         """
         Create an instance from a GitHub object.
         """
@@ -222,6 +222,8 @@ class GithubMixin(models.Model, Generic[O]):
             logger.debug(f"Created new {cls.__name__} instance: {res}")
         elif update:
             logger.debug(f"Updated existing {cls.__name__} instance: {res}")
+
+        res._gh_obj = obj  # pylint: disable=protected-access
         return res
 
     @property
