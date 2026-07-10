@@ -1,5 +1,4 @@
 """GitHub-related models for Django application."""
-# https://github.com/typeddjango/django-stubs/issues/299  for migrations with Generic
 import logging
 import os
 import subprocess
@@ -399,6 +398,19 @@ class GithubRepository(GithubMixin[gh_api.Repository]):
             res &= models.Q(name__istartswith=name)
         return res
 
+    def get_last_issue_number(self) -> int:
+        """
+        Fetch the last issue number for this repository.
+        Returns the highest issue number or 0 if there are no issues.
+        """
+        issues = self.gh_obj.get_issues(state='all', sort='created', direction='desc')
+        try:
+            last_issue = issues[0]
+            return last_issue.number
+        except Exception as e:
+            logger.warning(f"Could not fetch last issue number for {self}: {e}")
+            return 0
+
     @classmethod
     def from_user(cls, user: GithubUser) -> list[Self]:
         """
@@ -605,11 +617,6 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
         Fetch all issues for a given GitHub repository.
         Returns a list of GithubIssue instances.
         """
-        filter_args = {
-            'state': 'all',
-            'sort': 'created',
-            'direction': 'desc'
-        }
         if not update:
             if since_number is None:
                 last_created = cls.objects.filter(repository=repository).order_by('-created_at').first()
@@ -620,8 +627,7 @@ class GithubIssue(GithubMixin[gh_api.Issue]):
 
         res = []
         repo = repository.gh_obj
-
-        last_issue_num = repo.get_issues(**filter_args)[0].number
+        last_issue_num = repository.get_last_issue_number()
 
         iterator = progress_bar(
             range(since_number, last_issue_num + 1),
