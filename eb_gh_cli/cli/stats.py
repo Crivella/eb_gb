@@ -166,7 +166,7 @@ def repo_pr_lifetime(
     fig, ax = plt.subplots(figsize=(12, 6))
 
     ax.set_xlabel('PR Lifetime (days)')
-    ax.set_ylabel('Fraction of PRs')
+    ax.set_ylabel(f'{'Fraction' if fraction else 'Number'} of PRs')
 
     num_bins = int(max(max(_) for _ in label_data.values()) // 1 + 1 if label_data else 10)
 
