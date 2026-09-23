@@ -75,6 +75,9 @@ class GithubMixin(models.Model, Generic[O]):
 
     id_key: str = 'id'
     url_key: str = 'html_url'
+    # Allow URL of object to be updated instead of creating a new object for every (gh_id, url) pair
+    # EG a renamed user will maintain the same gh_id but have a new URL causing an integrity error.
+    overridable_url_key: bool = False
     obj_col_map: list[ColObjMap] = []
 
     class Meta:
@@ -185,7 +188,10 @@ class GithubMixin(models.Model, Generic[O]):
             url = obj
             for key in url_key:
                 url = getattr(url, key)
-            create_keys['url'] = url
+            if cls.overridable_url_key:
+                defaults['url'] = url
+            else:
+                create_keys['url'] = url
 
         for key, val in foreign.items():
             defaults[key] = val
@@ -273,6 +279,8 @@ class GithubUser(GithubMixin[gh_api.NamedUser]):
 
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
+
+    overridable_url_key = True  # User can be renamed changing the URL but not the gh_id
 
     obj_col_map = [
         ColObjMap('username', 'login'),
