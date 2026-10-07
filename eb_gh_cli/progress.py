@@ -2,8 +2,11 @@
 import logging
 import time
 from contextlib import contextmanager
+from typing import Iterable, TypeVar
 
 from github.PaginatedList import PaginatedList
+
+T = TypeVar('T')
 
 HAVE_RICH = False
 
@@ -54,10 +57,10 @@ def progress_bar_level_inc(clean_tasks: bool = True):
         PROGRESS_BAR_LEVEL -= 1
 
 def progress_bar(
-        iterable, total=None,
+        iterable: Iterable[T], total=None,
         delay=0.5,
         description=None, **kwargs
-    ):
+    ) -> Iterable[T]:
     """Create a progress bar using rich."""
     if not HAVE_RICH:
         return iterable

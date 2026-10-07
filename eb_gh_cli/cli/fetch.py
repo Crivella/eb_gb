@@ -174,13 +174,14 @@ def sync_repo(
         q = q.filter(is_closed=False)
         q = q.filter(number__gte=update_open)
         q = q.exclude(number__in=numbers)
-        open_issues = q.all()
+        open_issues: list[m.GithubIssue] = q.all()
         open_issues = progress_bar(
             open_issues,
             total=len(open_issues),
             description=f'Updating {len(open_issues)} open issues/PRs',
         )
         updated = []
+        closed  = 0
         for issue in open_issues:
             typ_str = 'PR' if issue.is_pr else 'Issue'
             with progress_bar_level_inc():
@@ -188,7 +189,10 @@ def sync_repo(
                 if msg:
                     logger.info(f"Updated {typ_str:>6s} #{issue.number:>6d}: {', '.join(msg)}")
                     updated.append(issue)
-        logger.info(f'Updated {len(updated)} open issues.')
+                    if 'Merged at' in msg or 'Closed at' in msg:
+                        closed += 1
+
+        logger.info(f'Updated {len(updated)} open issues. (Closed {closed} of them.)')
 
 
 def filter_gists(ids: set[str]) -> set[str]:
