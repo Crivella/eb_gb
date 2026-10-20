@@ -187,7 +187,8 @@ def sync_repo(
             with progress_bar_level_inc():
                 msg = issue.update()
                 if msg:
-                    logger.info(f"Updated {typ_str:>6s} #{issue.number:>6d}: {', '.join(msg)}")
+                    msg = ', '.join(msg)
+                    logger.info(f"Updated {typ_str:>6s} #{issue.number:>6d}: {msg}")
                     updated.append(issue)
                     if 'Merged at' in msg or 'Closed at' in msg:
                         closed += 1
