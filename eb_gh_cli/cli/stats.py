@@ -27,7 +27,8 @@ def user_pr_issue_stats(
         qparam: str, repository: m.GithubRepository,
         since: datetime = None, upto: datetime = None,
         limit: int = None,
-        only_open: bool = False
+        only_open: bool = False,
+        only_pr: bool = False,
     ):
     """Get user PR and issue stats."""
     q = m.GithubUser.objects
@@ -42,6 +43,8 @@ def user_pr_issue_stats(
         cnt_flt &= dmod.Q(**{f'{qparam}__{key}__lte': upto})
     if only_open:
         cnt_flt &= dmod.Q(**{f'{qparam}__is_closed': False})
+    if only_pr and qparam in ['created_issues', 'closed_issues']:
+        cnt_flt &= dmod.Q(**{f'{qparam}__is_pr': True})
 
     q = q.annotate(
         count=dmod.Count(
@@ -84,7 +87,7 @@ def repo_pr_mergers(gh_repo: m.GithubRepository, since, upto, limit):
 def repo_pr_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top PR closers for a GitHub repository."""
     click.echo(f'Fetching PR closers for {gh_repo.name} since {since} {type(since)}.')
-    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit)
+    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit, only_pr=True)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
