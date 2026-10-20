@@ -79,6 +79,16 @@ def repo_pr_mergers(gh_repo: m.GithubRepository, since, upto, limit):
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
+@opt.SINCE_OPTION
+@opt.UPTO_OPTION
+def repo_pr_closers(gh_repo: m.GithubRepository, since, upto, limit):
+    """Show the top PR closers for a GitHub repository."""
+    click.echo(f'Fetching PR closers for {gh_repo.name} since {since} {type(since)}.')
+    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit)
+
+@stats.command()
+@click.argument('gh_repo', type=ct.GithubRepositoryType())
+@click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
 @click.option('--only-open', is_flag=True, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
 @opt.UPTO_OPTION
