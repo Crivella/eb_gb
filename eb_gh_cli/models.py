@@ -1199,6 +1199,16 @@ class GithubPullRequest(GithubMixin[gh_api.PullRequest]):
         """
         return self.repository.gh_obj.get_pull(self.number)
 
+    @property
+    def issue_obj(self) -> 'GithubIssue':
+        """Return the associated pull request object if this issue is a PR."""
+        q = GithubIssue.objects
+        q = q.filter(repository=self.repository, number=self.number)
+        if q.exists():
+            return q.first()
+        logger.warning(f'PR object for Issue #{self.number} not found.')
+        return None
+
 class GithubPRReview(GithubMixin[gh_api.PullRequestReview]):
     """Model representing a review on a GitHub Pull Request."""
     body = models.TextField()
