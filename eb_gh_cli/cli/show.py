@@ -1,4 +1,5 @@
 """Show commands for the eb_gh_cli CLI."""
+from .. import models as m
 from . import click
 from . import click_types as ct
 from . import options as opt
@@ -30,7 +31,7 @@ def gh_issue(gh_issue):
 @opt.FILTER_USER_OPTION
 @opt.FILTER_REPO_OPTION
 @click.argument('gh_pr', type=ct.GithubPullRequestType())
-def gh_pr(gh_pr):
+def gh_pr(gh_pr: m.GithubPullRequest):
     """Show a Github Pull Request."""
     click.echo(f'GitHub Pull Request: {gh_pr}')
     click.echo(f'Pull Request number: {gh_pr.number}')
@@ -39,3 +40,9 @@ def gh_pr(gh_pr):
     click.echo(f'Created by: {gh_pr.created_by.username}')
     # click.echo(f'Closed by: {gh_pr.closed_by.username if gh_pr.closed_by else "N/A"}')
     click.echo(f'Merged by: {gh_pr.merged_by.username if gh_pr.merged_by else 'N/A'}')
+
+    issue = gh_pr.issue_obj
+    for comment in issue.comments.all():
+        click.echo('-' * 80)
+        click.echo(f'Comment by {comment.created_by.username} at {comment.created_at}:')
+        click.echo(comment.body)
