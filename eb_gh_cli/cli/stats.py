@@ -76,7 +76,8 @@ def user_pr_issue_stats(
 @opt.UPTO_OPTION
 def repo_pr_mergers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top PR mergers for a GitHub repository."""
-    click.echo(f'Fetching PR mergers for {gh_repo.name} since {since} {type(since)}.')
+    since_str = since.strftime('%Y-%m-%d') if since else 'the beginning'
+    click.echo(f'Fetching PR mergers for {gh_repo.name} since {since_str}.')
     user_pr_issue_stats('merged_pull_requests', gh_repo, since=since, upto=upto, limit=limit)
 
 @stats.command()
@@ -86,7 +87,8 @@ def repo_pr_mergers(gh_repo: m.GithubRepository, since, upto, limit):
 @opt.UPTO_OPTION
 def repo_pr_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top PR closers for a GitHub repository."""
-    click.echo(f'Fetching PR closers for {gh_repo.name} since {since} {type(since)}.')
+    since_str = since.strftime('%Y-%m-%d') if since else 'the beginning'
+    click.echo(f'Fetching PR closers for {gh_repo.name} since {since_str}.')
     user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit, only_pr=True)
 
 @stats.command()
