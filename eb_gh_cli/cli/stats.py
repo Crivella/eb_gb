@@ -29,6 +29,7 @@ def user_pr_issue_stats(
         limit: int = None,
         only_open: bool = False,
         only_pr: bool = False,
+        only_issues: bool = False,
     ):
     """Get user PR and issue stats."""
     q = m.GithubUser.objects
@@ -43,8 +44,14 @@ def user_pr_issue_stats(
         cnt_flt &= dmod.Q(**{f'{qparam}__{key}__lte': upto})
     if only_open:
         cnt_flt &= dmod.Q(**{f'{qparam}__is_closed': False})
-    if only_pr and qparam in ['created_issues', 'closed_issues']:
-        cnt_flt &= dmod.Q(**{f'{qparam}__is_pr': True})
+    if qparam in ['created_issues', 'closed_issues']:
+        if only_pr and only_issues:
+            click.echo('Cannot filter for both PRs and issues at the same time.')
+            return
+        if only_pr:
+            cnt_flt &= dmod.Q(**{f'{qparam}__is_pr': True})
+        if only_issues:
+            cnt_flt &= dmod.Q(**{f'{qparam}__is_pr': False})
 
     q = q.annotate(
         count=dmod.Count(
@@ -109,15 +116,20 @@ def repo_pr_creators(gh_repo: m.GithubRepository, since, upto, limit, only_open)
 @opt.UPTO_OPTION
 def repo_issue_creators(gh_repo: m.GithubRepository, since, upto, limit, only_open):
     """Show the top issue creators for a GitHub repository."""
-    user_pr_issue_stats('created_issues', gh_repo, since=since, upto=upto, limit=limit, only_open=only_open)
+    user_pr_issue_stats(
+        'created_issues', gh_repo, since=since, upto=upto, limit=limit,
+        only_issues=True,
+        only_open=only_open
+    )
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=int, default=None, help='Limit the number of users shown.')
 @opt.SINCE_OPTION
+@opt.UPTO_OPTION
 def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top issue closers for a GitHub repository."""
-    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit)
+    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit, only_issues=True)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
