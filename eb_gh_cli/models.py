@@ -176,6 +176,7 @@ class GithubMixin(models.Model, Generic[O]):
             defaults[column] = value
 
         create_keys = {}
+        gh_id = None
         if cls.id_key:
             id_key = cls.id_key.split('.')
             gh_id = obj
@@ -208,17 +209,19 @@ class GithubMixin(models.Model, Generic[O]):
             logger.error(f"Open files: \n{data.decode('utf-8')}")
             sys.exit(1)
         except django.db.utils.IntegrityError as e:
-            if cls.objects.filter(gh_id=gh_id).exists():
-                obj = cls.objects.get(gh_id=gh_id)
-            if obj.url.lower() == url.lower():
+            obj_db = None
+            if gh_id is not None and cls.objects.filter(gh_id=gh_id).exists():
+                obj_db = cls.objects.get(gh_id=gh_id)
+            if obj_db is not None and obj_db.url.lower() == url.lower():
                 logger.warning(
-                    f"URL case mismatch for {cls.__name__} with gh_id={gh_id}: '{obj.url}' vs '{url}'. Updating URL."
+                    f"URL case mismatch for {cls.__name__} with gh_id={gh_id}: '{obj_db.url}' vs '{url}'. Updating URL."
                 )
-                obj.url = url
+                obj_db.url = url
                 if update:
                     for key, val in defaults.items():
-                        setattr(obj, key, val)
-                obj.save()
+                        setattr(obj_db, key, val)
+                obj_db.save()
+                res = obj_db
             else:
                 logger.error(f"Integrity error while creating {cls.__name__} instance: {e}", exc_info=True)
                 logger.error(f'Create keys: {create_keys}, defaults: {defaults}')
@@ -1268,7 +1271,8 @@ class GithubFile(GithubMixin[gh_api.File]):
     deletions = models.PositiveIntegerField(default=0)
     changes = models.PositiveIntegerField(default=0)
 
-    blob_url = models.URLField(max_length=512)
+    # This field can be null see https://api.github.com/repos/EESSI/filesystem-layer/pulls/1/files
+    blob_url = models.URLField(max_length=512, null=True, blank=True)
     # raw_url = models.URLField(max_length=512)
     contents_url = models.URLField(max_length=512)
 
