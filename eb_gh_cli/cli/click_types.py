@@ -107,7 +107,7 @@ class GithubPullRequestType(DjangoModelType):
     filters = {
         'gh_user': lambda gh_user: (
             Q(created_by=gh_user) |
-            Q(closed_by=gh_user) |
+            Q(merged_by=gh_user) |
             Q(assignees__contains=gh_user) |
             Q(assignee=gh_user)
         ),

@@ -2,6 +2,7 @@
 from collections import defaultdict
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from functools import wraps
 
 from dateutil.relativedelta import relativedelta
 
@@ -23,6 +24,16 @@ from . import options as opt
 from .main import stats
 
 
+def require_matplotlib(func):
+    """Decorator to check if matplotlib is installed before running a function."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not HAVE_MATPLOTLIB:
+            click.echo('Matplotlib is not installed, cannot plot stats.')
+            return None
+        return func(*args, **kwargs)
+    return wrapper
+
 def user_pr_issue_stats(
         qparam: str, repository: m.GithubRepository,
         since: datetime = None, upto: datetime = None,
@@ -35,10 +46,16 @@ def user_pr_issue_stats(
     q = m.GithubUser.objects
     cnt_flt = dmod.Q(**{f'{qparam}__repository': repository})
     if since:
+        # Check if timezone is set in datetime object, if not, set it to UTC
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=dt_timezone.utc)
         key = qparam.split('_')[0]
         key += '_at'
         cnt_flt &= dmod.Q(**{f'{qparam}__{key}__gte': since})
     if upto:
+        # Check if timezone is set in datetime object, if not, set it to UTC
+        if upto.tzinfo is None:
+            upto = upto.replace(tzinfo=dt_timezone.utc)
         key = qparam.split('_')[0]
         key += '_at'
         cnt_flt &= dmod.Q(**{f'{qparam}__{key}__lte': upto})
@@ -68,13 +85,22 @@ def user_pr_issue_stats(
 
     users = q.all()
 
-    descr = qparam.replace('_', ' ')
-    if not users:
-        click.echo(f'No users found for `{descr}` in `{repository}`.')
-    else:
-        click.echo(f'Top users for repository {repository.name}:')
-        for user in users:
-            click.echo(f'{user.username:>25s} : {user.count:>7d}  {descr}')
+    # descr = qparam.replace('_', ' ')
+    # if not users:
+    #     click.echo(f'No users found for `{descr}` in `{repository}`.')
+    # else:
+    #     click.echo(f'Top users for repository {repository.name}:')
+    #     for user in users:
+    #         click.echo(f'{user.username:>25s} : {user.count:>7d}  {descr}')
+
+    return {user.username: user.count for user in users}
+
+def user_pr_issue_stats_echo(stats: dict):
+    """Echo the user PR and issue stats."""
+    if not stats:
+        click.echo('No users found.')
+    for username, count in stats.items():
+        click.echo(f'{username:>25s} : {count:>7d}')
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
@@ -85,7 +111,8 @@ def repo_pr_mergers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top PR mergers for a GitHub repository."""
     since_str = since.strftime('%Y-%m-%d') if since else 'the beginning'
     click.echo(f'Fetching PR mergers for {gh_repo.name} since {since_str}.')
-    user_pr_issue_stats('merged_pull_requests', gh_repo, since=since, upto=upto, limit=limit)
+    stats = user_pr_issue_stats('merged_pull_requests', gh_repo, since=since, upto=upto, limit=limit)
+    user_pr_issue_stats_echo(stats)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
@@ -96,7 +123,8 @@ def repo_pr_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top PR closers for a GitHub repository."""
     since_str = since.strftime('%Y-%m-%d') if since else 'the beginning'
     click.echo(f'Fetching PR closers for {gh_repo.name} since {since_str}.')
-    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit, only_pr=True)
+    stats = user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit, only_pr=True)
+    user_pr_issue_stats_echo(stats)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
@@ -106,7 +134,8 @@ def repo_pr_closers(gh_repo: m.GithubRepository, since, upto, limit):
 @opt.UPTO_OPTION
 def repo_pr_creators(gh_repo: m.GithubRepository, since, upto, limit, only_open):
     """Show the top PR creators for a GitHub repository."""
-    user_pr_issue_stats('created_pull_requests', gh_repo, since=since, upto=upto, limit=limit, only_open=only_open)
+    stats = user_pr_issue_stats('created_pull_requests', gh_repo, since=since, upto=upto, limit=limit, only_open=only_open)
+    user_pr_issue_stats_echo(stats)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
@@ -116,11 +145,12 @@ def repo_pr_creators(gh_repo: m.GithubRepository, since, upto, limit, only_open)
 @opt.UPTO_OPTION
 def repo_issue_creators(gh_repo: m.GithubRepository, since, upto, limit, only_open):
     """Show the top issue creators for a GitHub repository."""
-    user_pr_issue_stats(
+    stats = user_pr_issue_stats(
         'created_issues', gh_repo, since=since, upto=upto, limit=limit,
         only_issues=True,
         only_open=only_open
     )
+    user_pr_issue_stats_echo(stats)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
@@ -129,7 +159,8 @@ def repo_issue_creators(gh_repo: m.GithubRepository, since, upto, limit, only_op
 @opt.UPTO_OPTION
 def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
     """Show the top issue closers for a GitHub repository."""
-    user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit, only_issues=True)
+    stats = user_pr_issue_stats('closed_issues', gh_repo, since=since, upto=upto, limit=limit, only_issues=True)
+    user_pr_issue_stats_echo(stats)
 
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
@@ -138,6 +169,7 @@ def repo_issue_closers(gh_repo: m.GithubRepository, since, upto, limit):
 @opt.UPTO_OPTION
 @click.option('--highlight-labels', type=str, help='Comma-separated list of labels to highlight in the plot.')
 @click.option('--fraction', is_flag=True, help='Plot fraction of PRs instead of absolute counts.')
+@require_matplotlib
 def repo_pr_lifetime(
         gh_repo: m.GithubRepository,
         limit: int = None,
@@ -146,9 +178,6 @@ def repo_pr_lifetime(
         fraction: bool = False
     ):
     """Make an histogram of PR lifetimes for a GitHub repository. For Open PRs, the lifetime is calculated until now."""
-    if not HAVE_MATPLOTLIB:
-        click.echo('Matplotlib is not installed, cannot plot PR stats.')
-        return
     query = gh_repo.pull_requests.filter(
         created_at__isnull=False
     )
@@ -251,10 +280,6 @@ def plot_pr_stats_over_time(
         limit: int = None
     ):
     """Plot PR stats for a GitHub repository over time (created/merged/closed)."""
-    if not HAVE_MATPLOTLIB:
-        click.echo('Matplotlib is not installed, cannot plot PR stats.')
-        return
-
     field_extra_query = field_extra_query or {}
     colors = colors or ['blue', 'green', 'red', 'orange', 'purple', 'cyan', 'magenta']
 
@@ -329,7 +354,8 @@ def plot_pr_stats_over_time(
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--group-by-months', type=click.INT, default=1, help='Group stats by number of months.')
 @click.option('--limit', type=click.INT, default=None, help='Limit the number of data points shown.')
-def pr_plot(
+@require_matplotlib
+def plot_pr(
         gh_repo: m.GithubRepository,
         group_by_months: int,
         limit: int = None
@@ -354,7 +380,8 @@ def pr_plot(
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--group-by-months', type=click.INT, default=1, help='Group stats by number of months.')
 @click.option('--limit', type=click.INT, default=None, help='Limit the number of data points shown.')
-def issue_plot(
+@require_matplotlib
+def plot_issues(
         gh_repo: m.GithubRepository,
         group_by_months: int,
         limit: int = None
@@ -371,3 +398,100 @@ def issue_plot(
         group_by_months=group_by_months,
         limit=limit
     )
+
+@stats.command()
+@click.argument('gh_repo', type=ct.GithubRepositoryType())
+@click.option('--limit', type=click.INT, default=None, help='Limit the number of data points shown.')
+@opt.SINCE_OPTION
+@opt.UPTO_OPTION
+@click.option(
+    '--type', 'typ',
+    type=click.Choice(['pr', 'issue'], case_sensitive=False),
+    default='pr',
+    help='Type of stats to plot: pr or issue.'
+)
+@click.option(
+    '--sort-by',
+    type=click.Choice(['created', 'merged', 'closed'], case_sensitive=False),
+    default='created',
+    help='Sort by created, merged or closed PRs.'
+)
+@require_matplotlib
+def plot_contributor_stats(
+        gh_repo: m.GithubRepository,
+        limit: int = None,
+        since = None, upto = None,
+        typ: str = 'pr',
+        sort_by: str = 'created'
+    ):
+    """Histogram plot of every contributor's PRs/Issues within a time range.
+    Sortable by number of open/merged(closed) PRs/Issues."""
+    allowable_types = ['pr', 'issue']
+    allowable_sort_by = ['created', 'closed']
+    if typ not in allowable_types:
+        click.echo(f'Invalid type value: {typ}. Must be one of pr, issue.')
+        return
+    if typ == 'pr':
+        allowable_sort_by.append('merged')
+    if sort_by not in allowable_sort_by:
+        click.echo(f'Invalid sort_by value: {sort_by}. Must be one of created, merged, closed.')
+        return
+
+    if typ == 'pr':
+        merged_prs = user_pr_issue_stats('merged_pull_requests', gh_repo, since=since, upto=upto)
+    else:
+        merged_prs = {}
+    closed_prs = user_pr_issue_stats(
+        'closed_issues', gh_repo, since=since, upto=upto, only_pr=typ=='pr', only_issues=typ=='issue'
+    )
+    created = user_pr_issue_stats(
+        'created_issues', gh_repo, since=since, upto=upto, only_pr=typ=='pr', only_issues=typ=='issue'
+    )
+
+    collect = {}
+    for user in set(merged_prs.keys()).union(closed_prs.keys()).union(created.keys()):
+        collect[user] = {
+            'merged': merged_prs.get(user, 0),
+            'closed': closed_prs.get(user, 0) - merged_prs.get(user, 0),
+            'created': created.get(user, 0)
+        }
+
+
+    sorted_collect = sorted(
+        collect.items(),
+        key=lambda item: item[1][sort_by],
+        reverse=True
+    )
+    if limit:
+        sorted_collect = sorted_collect[:limit]
+
+    _, ax = plt.subplots(figsize=(12, 6))
+
+    ax.set_xlabel('Contributors')
+    ax.set_ylabel('Number of PRs/Issues')
+    title = f'Stats for `{gh_repo.name}` (sorted by {sort_by})'
+    if since:
+        title += f' - since {since.strftime('%Y-%m-%d')}'
+    if upto:
+        title += f' - upto {upto.strftime('%Y-%m-%d')}'
+    ax.set_title(title)
+
+    x = np.arange(len(sorted_collect))
+    merged_counts = [item[1]['merged'] for item in sorted_collect]
+    closed_counts = [item[1]['closed'] for item in sorted_collect]
+    created_counts = [item[1]['created'] for item in sorted_collect]
+
+    width = 0.33
+    if typ == 'pr':
+        width = 0.25
+        ax.bar(x - width, merged_counts, width, label='Merged', color='purple')
+    ax.bar(x, closed_counts, width, label='Closed', color='red')
+    ax.bar(x + width, created_counts, width, label='Created', color='green')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([item[0] for item in sorted_collect], rotation=45, ha='right')
+
+    ax.legend()
+
+    plt.tight_layout()
+    plt.show()
