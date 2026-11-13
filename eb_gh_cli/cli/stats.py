@@ -399,6 +399,9 @@ def plot_issues(
         limit=limit
     )
 
+ALLOWABLE_TYPES = ['pr', 'issue']
+ALLOWABLE_SORT_BY = ['created', 'closed', 'total', 'merged']
+
 @stats.command()
 @click.argument('gh_repo', type=ct.GithubRepositoryType())
 @click.option('--limit', type=click.INT, default=None, help='Limit the number of data points shown.')
@@ -406,15 +409,21 @@ def plot_issues(
 @opt.UPTO_OPTION
 @click.option(
     '--type', 'typ',
-    type=click.Choice(['pr', 'issue'], case_sensitive=False),
+    type=click.Choice(ALLOWABLE_TYPES, case_sensitive=False),
     default='pr',
     help='Type of stats to plot: pr or issue.'
 )
 @click.option(
     '--sort-by',
-    type=click.Choice(['created', 'merged', 'closed'], case_sensitive=False),
+    type=click.Choice(ALLOWABLE_SORT_BY, case_sensitive=False),
     default='created',
     help='Sort by created, merged or closed PRs.'
+)
+@click.option(
+    '--sort-order',
+    type=click.Choice(['asc', 'desc'], case_sensitive=False),
+    default='desc',
+    help='Sort order: asc or desc.'
 )
 @require_matplotlib
 def plot_contributor_stats(
@@ -422,17 +431,18 @@ def plot_contributor_stats(
         limit: int = None,
         since = None, upto = None,
         typ: str = 'pr',
-        sort_by: str = 'created'
+        sort_by: str = 'created',
+        sort_order: str = 'desc',
     ):
     """Histogram plot of every contributor's PRs/Issues within a time range.
     Sortable by number of open/merged(closed) PRs/Issues."""
-    allowable_types = ['pr', 'issue']
-    allowable_sort_by = ['created', 'closed']
+    allowable_types = ALLOWABLE_TYPES.copy()
+    allowable_sort_by = ALLOWABLE_SORT_BY.copy()
     if typ not in allowable_types:
         click.echo(f'Invalid type value: {typ}. Must be one of pr, issue.')
         return
-    if typ == 'pr':
-        allowable_sort_by.append('merged')
+    if typ == 'issue':
+        allowable_sort_by.remove('merged')
     if sort_by not in allowable_sort_by:
         click.echo(f'Invalid sort_by value: {sort_by}. Must be one of created, merged, closed.')
         return
@@ -450,17 +460,20 @@ def plot_contributor_stats(
 
     collect = {}
     for user in set(merged_prs.keys()).union(closed_prs.keys()).union(created.keys()):
+        merged_count = merged_prs.get(user, 0)
+        closed_count = closed_prs.get(user, 0) - merged_prs.get(user, 0)  # Closed issues also include merged PRs
+        created_count = created.get(user, 0)
         collect[user] = {
-            'merged': merged_prs.get(user, 0),
-            'closed': closed_prs.get(user, 0) - merged_prs.get(user, 0),
-            'created': created.get(user, 0)
+            'merged': merged_count,
+            'closed': closed_count,
+            'created':created_count,
+            'total': created_count - closed_count - merged_count,
         }
-
 
     sorted_collect = sorted(
         collect.items(),
         key=lambda item: item[1][sort_by],
-        reverse=True
+        reverse=(sort_order == 'desc')
     )
     if limit:
         sorted_collect = sorted_collect[:limit]
@@ -468,12 +481,11 @@ def plot_contributor_stats(
     _, ax = plt.subplots(figsize=(12, 6))
 
     ax.set_xlabel('Contributors')
-    ax.set_ylabel('Number of PRs/Issues')
-    title = f'Stats for `{gh_repo.name}` (sorted by {sort_by})'
-    if since:
-        title += f' - since {since.strftime('%Y-%m-%d')}'
-    if upto:
-        title += f' - upto {upto.strftime('%Y-%m-%d')}'
+    ax.set_ylabel(f'Number of {typ.upper()}s')
+    since_str = since.strftime('%Y-%m-%d') if since else 'the beginning'
+    upto_str = upto.strftime('%Y-%m-%d') if upto else 'now'
+    title = f'Stats for `{gh_repo.name}` (sorted by {sort_by}) - {since_str} --> {upto_str}'
+
     ax.set_title(title)
 
     x = np.arange(len(sorted_collect))
@@ -481,15 +493,17 @@ def plot_contributor_stats(
     closed_counts = [item[1]['closed'] for item in sorted_collect]
     created_counts = [item[1]['created'] for item in sorted_collect]
 
-    width = 0.33
+    width = 0.25
     if typ == 'pr':
-        width = 0.25
+        width = 0.16
         ax.bar(x - width, merged_counts, width, label='Merged', color='purple')
     ax.bar(x, closed_counts, width, label='Closed', color='red')
     ax.bar(x + width, created_counts, width, label='Created', color='green')
+    # total_colors = ['']
+    ax.bar(x + 2 * width, [item[1]['total'] for item in sorted_collect], width, label='Open-C/M', color='gray')
 
     ax.set_xticks(x)
-    ax.set_xticklabels([item[0] for item in sorted_collect], rotation=45, ha='right')
+    ax.set_xticklabels([item[0] for item in sorted_collect], rotation=75, ha='right')
 
     ax.legend()
 
