@@ -46,3 +46,17 @@ def gh_pr(gh_pr: m.GithubPullRequest):
         click.echo('-' * 80)
         click.echo(f'Comment by {comment.created_by.username} at {comment.created_at}:')
         click.echo(comment.body)
+
+@show.command()
+def list_gh_users():
+    """List all GitHub users."""
+    gh_users = m.GithubUser.objects.all()
+    for gh_user in gh_users:
+        click.echo(f'{gh_user.username}')
+
+@show.command()
+def list_gh_repos():
+    """List all GitHub repositories."""
+    gh_repos = m.GithubRepository.objects.all()
+    for gh_repo in gh_repos:
+        click.echo(f'{gh_repo.owner.username}/{gh_repo.name}')

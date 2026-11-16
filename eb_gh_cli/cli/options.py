@@ -25,7 +25,7 @@ UPDATE_OPTION = click.option(
 
 FILTER_USER_OPTION = click.option(
     '-u', '--gh-user',
-    type=ct.GithubUserType(),
+    type=ct.GithubUserType(use_filter=False),
     help='GitHub user for filtering',
     expose_value=False,
     callback=register_hidden_param
@@ -33,7 +33,7 @@ FILTER_USER_OPTION = click.option(
 
 FILTER_REPO_OPTION = click.option(
     '-r', '--gh-repo',
-    type=ct.GithubRepositoryType(),
+    type=ct.GithubRepositoryType(use_filter=False),
     help='GitHub repository for filtering',
     expose_value=False,
     callback=register_hidden_param

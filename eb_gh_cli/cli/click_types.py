@@ -20,13 +20,32 @@ class DjangoModelType(click.ParamType):
 
     filters: dict = None
 
-    def __init__(self, allow_new: bool = False, allow_list: bool = False):
+    def __init__(
+            self,
+            allow_new: bool = False,
+            allow_list: bool = False,
+            use_filter: bool = True,
+        ):
+        """
+        Initialize the DjangoModelType.
+
+        Args:
+            allow_new (bool, optional): Whether to allow creating new instances. Defaults to False.
+            allow_list (bool, optional): Whether to allow listing instances. Defaults to False.
+            use_filter (bool, optional): Whether to use filtering. Defaults to True.
+              EG to avoid using a filter when the option itself is used for filtering
+
+        Raises:
+            ValueError: _description_
+        """
         if self.model_class is None:
             raise ValueError('model_class must be set for DjangoModelType')
         super().__init__()
 
         self.allow_new = allow_new
         self.allow_list = allow_list
+
+        self.use_filter = use_filter
 
     def convert(self, value, param, ctx):
         res = None
@@ -54,12 +73,16 @@ class DjangoModelType(click.ParamType):
         q = self.model_class.objects
         q = q.filter(self.model_class.filter_autocomplete_string(incomplete))
 
-        filters = self.filters or {}
-        for key, flt_func in filters.items():
-            val = hidden_params.get(key, None)
-            if val is None:
-                continue
-            q = q.filter(flt_func(val))
+        if self.use_filter:
+            filters = self.filters or {}
+            flt_func = filters.pop('*', None)
+            if flt_func:
+                q = q.filter(flt_func())
+            for key, flt_func in filters.items():
+                val = hidden_params.get(key, None)
+                if val is None:
+                    continue
+                q = q.filter(flt_func(val))
 
         choices = q.all()
         return [
@@ -90,11 +113,12 @@ class GithubIssueType(DjangoModelType):
     model_class = m.GithubIssue
 
     filters = {
+        '*': lambda: Q(is_pr=False),
         'gh_user': lambda gh_user: (
             Q(created_by=gh_user) |
             Q(closed_by=gh_user) |
-            Q(assignes__contains=gh_user) |
-            Q(assignee=gh_user)
+            Q(assignees=gh_user) |
+            Q()
         ),
         'gh_repo': lambda gh_repo: Q(repository=gh_repo),
     }
@@ -108,8 +132,8 @@ class GithubPullRequestType(DjangoModelType):
         'gh_user': lambda gh_user: (
             Q(created_by=gh_user) |
             Q(merged_by=gh_user) |
-            Q(assignees__contains=gh_user) |
-            Q(assignee=gh_user)
+            Q(assignees=gh_user) |
+            Q()
         ),
         'gh_repo': lambda gh_repo: Q(repository=gh_repo),
     }
